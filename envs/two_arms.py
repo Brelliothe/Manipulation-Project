@@ -196,12 +196,14 @@ class TwoArmSim(pyglet.window.Window):
         self.body1, self.shape1 = self.add_bar((uxi[0], uyi[0]), thetas[0])
         self.body2, self.shape2 = self.add_bar((uxi[1], uyi[1]), thetas[1])
 
-        vels = self.vel_mag * np.stack([np.cos(thetas), np.sin(thetas)], axis=0)
+        vels = self.vel_mag * np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
+        print("vels: {}".format(vels))
 
         tolerance = 3.0  # stopping criteria. See below.
         step_dt = 1 / 60.0  # Sim bandwidth
 
         # Step through the simulation
+        steps = 0
         while True:
             # If user wants to render at every simulation timestep, then
             # render here as well.
@@ -222,6 +224,9 @@ class TwoArmSim(pyglet.window.Window):
             # action.
             reach1 = np.abs(push_length1 - lengths[0]) < tolerance
             reach2 = np.abs(push_length2 - lengths[1]) < tolerance
+
+            print("step: {}".format(steps))
+            steps += 1
 
             if reach1 or reach2:
                 break
