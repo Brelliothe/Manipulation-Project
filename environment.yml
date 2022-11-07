@@ -1,0 +1,5 @@
+name: manipulation-project
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10.6=ha86cf86_0_cpython
