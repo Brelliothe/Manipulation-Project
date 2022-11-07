@@ -2,6 +2,7 @@ import random
 import time
 
 import cv2
+import ipdb
 import numpy as np
 import PIL
 import pygame
@@ -40,6 +41,11 @@ class TwoArmSim(pyglet.window.Window):
         self.onion_pieces = []
         self.onion_num = 120
         self.onion_size = 12
+
+        self.body0: pymunk.Body | None = None
+        self.body1: pymunk.Body | None = None
+        self.shape0: pymunk.Shape | None = None
+        self.shape1: pymunk.Shape | None = None
 
         self.space = pymunk.Space()
 
@@ -92,9 +98,11 @@ class TwoArmSim(pyglet.window.Window):
         """
         Create a single onion piece by defining its shape, mass, etc.
         """
+        mass = 10.
+
         points = self.generate_random_poly((0, 0), radius)
-        inertia = pymunk.moment_for_poly(100.0, points.tolist(), (0, 0))
-        body = pymunk.Body(100.0, inertia)
+        inertia = pymunk.moment_for_poly(mass, points.tolist(), (0, 0))
+        body = pymunk.Body(mass, inertia)
         # TODO(terry-suh): is this a reasonable distribution?
         body.position = Vec2d(random.randint(100, 400), random.randint(100, 400))
         # body.position = Vec2d(random.randint(0, 500), random.randint(0, 500))
@@ -137,7 +145,10 @@ class TwoArmSim(pyglet.window.Window):
         """
         Create a single bar by defining its shape, mass, etc.
         """
-        body = pymunk.Body(1e7, float("inf"))
+        mass = 100.0
+        body = pymunk.Body(mass, float("inf"))
+        # body.position = Vec2d(position[0], position[1])
+
         theta = theta - np.pi / 2  # pusher is perpendicular to push direction.
         v = np.array([self.bar_width / 2.0 * np.cos(theta), self.bar_width / 2.0 * np.sin(theta)])
 
@@ -178,7 +189,7 @@ class TwoArmSim(pyglet.window.Window):
         """
         Once given a control action, run the simulation forward and return.
 
-        u: (8, )
+        u: (8, ). (-0.5, 0.5)
         """
         u = u.reshape((2, 4))
 
@@ -190,14 +201,20 @@ class TwoArmSim(pyglet.window.Window):
 
         # transform into angular coordinates
         thetas = np.arctan2(uyf - uyi, uxf - uxi)
-        lengths = np.linalg.norm(np.array([uxf - uxi, uyf - uyi]), axis=-1)
+        lengths = np.linalg.norm(np.stack([uxf - uxi, uyf - uyi], axis=1), axis=1)
+        print("lengths: {}".format(lengths))
+
+        start0 = np.array([uxi[0], uyi[0]])
+        start1 = np.array([uxi[1], uyi[1]])
 
         # add the bar and set velocity.
-        self.body1, self.shape1 = self.add_bar((uxi[0], uyi[0]), thetas[0])
-        self.body2, self.shape2 = self.add_bar((uxi[1], uyi[1]), thetas[1])
+        self.body0, self.shape0 = self.add_bar(start0, thetas[0])
+        self.body1, self.shape1 = self.add_bar(start1, thetas[1])
+
+        print("body0 position: {} vs {}".format(start0, self.body0.position))
+        print("body1 position: {} vs {}".format(start1, self.body1.position))
 
         vels = self.vel_mag * np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
-        print("vels: {}".format(vels))
 
         tolerance = 3.0  # stopping criteria. See below.
         step_dt = 1 / 60.0  # Sim bandwidth
@@ -205,36 +222,50 @@ class TwoArmSim(pyglet.window.Window):
         # Step through the simulation
         steps = 0
         while True:
+            # 1: Check if we have reached the goal.
+            # dx0 = np.array(self.body0.position) - start0
+            # dx1 = np.array(self.body1.position) - start1
+            dx0 = self.body0.position
+            dx1 = self.body1.position
+            push_length0 = np.linalg.norm(dx0)
+            push_length1 = np.linalg.norm(dx1)
+
+            reach0 = np.abs(push_length0 - lengths[0]) < tolerance
+            reach1 = np.abs(push_length1 - lengths[1]) < tolerance
+
+            print("")
+            print("push lengths: {} {}".format(push_length0, push_length1))
+            print("     lengths: {} {}".format(lengths[0], lengths[1]))
+
+            if reach0 or reach1:
+                print("break!")
+                break
+
             # If user wants to render at every simulation timestep, then
             # render here as well.
             # TODO(terry-suh): there should be an option in between where the
             # user specifies dt of rendering.
+            # ipdb.set_trace()
             if self.RENDER_EVERY_TIMESTEP:
                 self.render()
-            self.body1.velocity = vels[0].tolist()
-            self.body2.velocity = vels[1].tolist()
+
+            # self.body0.velocity = vels[0].tolist()
+            # self.body1.velocity = vels[1].tolist()
+
+            c = 10000.0
+            v0, v1 = (c * vels[0]).tolist(), (c * vels[1]).tolist()
+            self.body0.apply_force_at_local_point(v0)
+            self.body1.apply_force_at_local_point(v1)
+
             self.space.step(step_dt)
             self.global_time += step_dt
 
-            push_length1 = np.linalg.norm(self.body1.position, ord=2)
-            push_length2 = np.linalg.norm(self.body2.position, ord=2)
-
-            # Once we get in 'tolerance' position between the current push
-            # length and the goal push length, we will choose to complete this
-            # action.
-            reach1 = np.abs(push_length1 - lengths[0]) < tolerance
-            reach2 = np.abs(push_length2 - lengths[1]) < tolerance
-
-            print("step: {}".format(steps))
             steps += 1
-
-            if reach1 or reach2:
-                break
 
         # Wait 1 second in sim time to slow down moving pieces, and render.
         self.wait(1.0)
+        self.remove_bar(self.body0, self.shape0)
         self.remove_bar(self.body1, self.shape1)
-        self.remove_bar(self.body2, self.shape2)
         self.render()
 
         return None
