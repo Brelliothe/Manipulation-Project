@@ -214,7 +214,7 @@ class TwoArmSim(pyglet.window.Window):
         print("body0 position: {} vs {}".format(start0, self.body0.position))
         print("body1 position: {} vs {}".format(start1, self.body1.position))
 
-        vels = self.vel_mag * np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
+        vels = [[0, 0], [0, 0]]
 
         tolerance = 3.0  # stopping criteria. See below.
         step_dt = 1 / 60.0  # Sim bandwidth
@@ -251,11 +251,26 @@ class TwoArmSim(pyglet.window.Window):
 
             # self.body0.velocity = vels[0].tolist()
             # self.body1.velocity = vels[1].tolist()
+            v_d = 100
+            vels[0].append(np.linalg.norm(self.body0.velocity) - v_d)
+            vels[1].append(np.linalg.norm(self.body1.velocity) - v_d)
+            
+            def pid(vs):
+                k_p, k_i, k_d = -100, -100, -100
+                f = []
+                for v in vs:
+                    force = k_p * v[-1] + k_i * sum(v) + k_d * (v[-1] - v[-2])
+                    f.append(force)
+                return f
+            
+            f = pid(vels)
+            print(f)
+            
+            if max(abs(f[0]), abs(f[1])) > 200000:
+                break
 
-            c = 10000.0
-            v0, v1 = (c * vels[0]).tolist(), (c * vels[1]).tolist()
-            self.body0.apply_force_at_local_point(v0)
-            self.body1.apply_force_at_local_point(v1)
+            self.body0.apply_force_at_local_point((f[0] * np.cos(thetas[0]), f[0] * np.sin(thetas[0])))
+            self.body1.apply_force_at_local_point((f[1] * np.cos(thetas[1]), f[1] * np.sin(thetas[1])))
 
             self.space.step(step_dt)
             self.global_time += step_dt
