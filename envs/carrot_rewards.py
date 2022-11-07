@@ -1,6 +1,7 @@
+import cv2
 import numpy as np
 from PIL import Image
-import cv2
+
 
 def image_transform(image_cv2):
     """
@@ -13,10 +14,11 @@ def image_transform(image_cv2):
     # 2. Resize. Uses bilinear interpolation by default.
     image_cv2_resized = cv2.resize(image_cv2_grayscale, (32, 32), cv2.INTER_LINEAR)
     # 3. Threshold image to 0-1.
-    #_, image_cv2_threshold = cv2.threshold(image_cv2_resized, 0, 255, cv2.THRESH_BINARY)
+    # _, image_cv2_threshold = cv2.threshold(image_cv2_resized, 0, 255, cv2.THRESH_BINARY)
     # 4. Normalize image between 0~1.
-    image_normalized = image_cv2_resized / 255.
+    image_normalized = image_cv2_resized / 255.0
     return image_normalized
+
 
 def lyapunov_measure():
     """
@@ -26,14 +28,15 @@ def lyapunov_measure():
     measure = np.zeros((32, 32))
     for i in range(32):
         for j in range(32):
-            radius = np.linalg.norm(np.array([i - 15.5, j - 15.5]), ord=2) 
-            measure[i,j] = np.maximum(radius - pixel_radius, 0)
+            radius = np.linalg.norm(np.array([i - 15.5, j - 15.5]), ord=2)
+            measure[i, j] = np.maximum(radius - pixel_radius, 0)
     # A number here is chosen to approximately normalize the reward in between [0,1]
-    return measure / 8.
+    return measure / 8.0
+
 
 def lyapunov(image_normalized):
     """
-    Apply the lyapunov measure to the image. 
+    Apply the lyapunov measure to the image.
     input: cv2 image (np.array), shape (32, 32)
     output: (np.float), shape ()
     """
