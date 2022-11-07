@@ -98,7 +98,7 @@ class TwoArmSim(pyglet.window.Window):
         """
         Create a single onion piece by defining its shape, mass, etc.
         """
-        mass = 10.
+        mass = 1.
 
         points = self.generate_random_poly((0, 0), radius)
         inertia = pymunk.moment_for_poly(mass, points.tolist(), (0, 0))
@@ -233,9 +233,9 @@ class TwoArmSim(pyglet.window.Window):
             reach0 = np.abs(push_length0 - lengths[0]) < tolerance
             reach1 = np.abs(push_length1 - lengths[1]) < tolerance
 
-            print("")
-            print("push lengths: {} {}".format(push_length0, push_length1))
-            print("     lengths: {} {}".format(lengths[0], lengths[1]))
+            # print("")
+            # print("push lengths: {} {}".format(push_length0, push_length1))
+            # print("     lengths: {} {}".format(lengths[0], lengths[1]))
 
             if reach0 or reach1:
                 print("break!")
@@ -246,7 +246,7 @@ class TwoArmSim(pyglet.window.Window):
             # TODO(terry-suh): there should be an option in between where the
             # user specifies dt of rendering.
             # ipdb.set_trace()
-            if self.RENDER_EVERY_TIMESTEP:
+            if self.RENDER_EVERY_TIMESTEP and steps % 10 == 0:
                 self.render()
 
             # self.body0.velocity = vels[0].tolist()
@@ -264,7 +264,6 @@ class TwoArmSim(pyglet.window.Window):
                 return f
             
             f = pid(vels)
-            print(f)
             
             if max(abs(f[0]), abs(f[1])) > 200000:
                 break
