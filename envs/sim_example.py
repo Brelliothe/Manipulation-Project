@@ -6,7 +6,7 @@ Minimal example for pile simulation.
 """
 
 # from carrot_sim import CarrotSim
-from two_arms import TwoArmSim
+from two_arms_old import TwoArmSim
 
 
 # sim = CarrotSim()  # initialize sim.
