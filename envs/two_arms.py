@@ -60,7 +60,7 @@ class TwoArmSim(pyglet.window.Window):
         # If this flag is enabled, then the rendering will be done at every
         # simulation timestep. This makes the sim much slower, but is better
         # for visualizing the pusher continuously.
-        self.RENDER_EVERY_TIMESTEP = True
+        self.RENDER_EVERY_TIMESTEP = False
 
     """
     1. Methods for Generating and Removing Sim Elements
@@ -280,7 +280,7 @@ class TwoArmSim(pyglet.window.Window):
         self.wait(1.0)
         self.remove_bar(self.body0, self.shape0)
         self.remove_bar(self.body1, self.shape1)
-        self.render()
+        # self.render()
 
         return None
 

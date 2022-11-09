@@ -7,6 +7,9 @@ sim = TwoArmSim()
 count = 0
 
 def sample():
+    """
+    from a square box randomly sample 2 lines by endpoints, the probability of intersecion is 25/108
+    """
     init = np.random.rand(4)
     init1 = init[:2]
     init2 = init[2:]
@@ -24,11 +27,11 @@ def sample():
         goal1 = goal[:2]
         goal2 = goal[2:]
     u = np.concatenate((np.concatenate((init1, goal1), axis=0), np.concatenate((init2, goal2), axis=0)), axis=0)
-    return -0.5 + 1.0 * u
+    return (-0.5 + 1.0 * u) * 0.8
 
 data = list()
 
-while count < 1:
+while count < 10:
     count += 1 
     u = sample()
     before = sim.get_current_image()
