@@ -119,6 +119,7 @@ class BiArmSim(pyglet.window.Window):
         super().__init__(vsync=False)
 
         # Sim window parameters. These also define the resolution of the image
+        # Ruixiao: I changeed the height, width and the following parameter to match up Terry's paper
         self.width = 500
         self.height = 300
         self.set_caption("BiArmSim")
@@ -198,7 +199,7 @@ class BiArmSim(pyglet.window.Window):
         for i in range(n_particles):
             self.add_particle(radius)
 
-        log.info("particle mass: {}".format(self.particles[0].body.mass))
+        # log.info("particle mass: {}".format(self.particles[0].body.mass))
 
     def remove_particles(self):
         for particle in self.particles:
@@ -223,12 +224,13 @@ class BiArmSim(pyglet.window.Window):
         :param sposes: (2, 2)
         :param thetas: (2, )
         """
-        log.info("thetas: {}".format(thetas))
+        # log.info("thetas: {}".format(thetas))
         n_pushers = sposes.shape[0]
         for ii in range(n_pushers):
             self.add_pusher(sposes[ii], thetas[ii])
 
-        log.info("spos[0]: {}, pusher pos: {}".format(sposes[0], self.pushers[0].body.position))
+        # log.info("spos[0]: {}, pusher pos: {}".format(sposes[0], self.pushers[0].body.position))
+
 
     def remove_pushers(self) -> None:
         for pusher in self.pushers:
@@ -253,8 +255,8 @@ class BiArmSim(pyglet.window.Window):
 
         # (2, 2)
         x_diff = xfs - x0s
-        log.info("x0:\n{}".format(x0s))
-        log.info("xf:\n{}".format(xfs))
+        # log.info("x0:\n{}".format(x0s))
+        # log.info("xf:\n{}".format(xfs))
 
         thetas = np.arctan2(x_diff[:, 1], x_diff[:, 0])
         target_push_lengths = np.linalg.norm(x_diff, axis=1)
@@ -262,7 +264,7 @@ class BiArmSim(pyglet.window.Window):
 
         # (n_pushers, 2)
         force_vecs = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
-        log.info("force_vecs: {} {}".format(force_vecs[0], force_vecs[1]))
+        # log.info("force_vecs: {} {}".format(force_vecs[0], force_vecs[1]))
 
         # Add the pushers.
         self.add_pushers(x0s, thetas)
@@ -285,22 +287,22 @@ class BiArmSim(pyglet.window.Window):
             # Check if we have reached the goal.
             reached_goal = self.has_reached_goal(x0s, target_push_lengths, atol=goal_atol)
             if np.any(reached_goal):
-                log.info("Reached goal!")
+                # log.info("Reached goal!")
                 break
 
-            if self.render_every > 0 and steps % self.render_every == 0:
-                t3 = time.time()
-                self.render_to_screen()
-                t4 = time.time()
-                ms = (t4 - t3) * 1e3
-                # log.info("Render time: {:.2f} ms".format(ms, ))
+            # if self.render_every > 0 and steps % self.render_every == 0:
+            #     t3 = time.time()
+            #     self.render_to_screen()
+            #     t4 = time.time()
+            #     ms = (t4 - t3) * 1e3
+            #     log.info("Render time: {:.2f} ms".format(ms, ))
 
             vels = np.stack([np.linalg.norm(pusher.body.velocity) for pusher in self.pushers], axis=0)
             v_err_hist[steps] = vels - v_noms
             # (n_pushers, )
             forces = self.pusher_controller(vels, v_noms, v_err_hist[:steps + 1])
 
-            log.info("v: {}, v_nom: {}".format(vels, v_noms))
+            # log.info("v: {}, v_nom: {}".format(vels, v_noms))
 
             # log.info("vels: {}, forces: {}".format(vels, forces))
             if not np.all(np.isfinite(forces)):
@@ -308,7 +310,7 @@ class BiArmSim(pyglet.window.Window):
 
             max_force = np.max(np.abs(forces))
             if max_force > max_force_thresh:
-                log.info("Max force!")
+                # log.info("Max force!")
                 break
 
             # (n_pushers, 2)
@@ -322,7 +324,7 @@ class BiArmSim(pyglet.window.Window):
             steps += 1
 
             if steps >= max_steps:
-                log.info("Hit max steps!")
+                # log.info("Hit max steps!")
                 break
 
             t2 = time.time()
@@ -332,7 +334,7 @@ class BiArmSim(pyglet.window.Window):
         # Wait 1 second in sim time to slow down moving pieces, and render.
         self.advance_s(1.0)
         self.remove_pushers()
-        self.render_to_screen()
+        # self.render_to_screen()
 
         return
 
@@ -404,7 +406,7 @@ class BiArmSim(pyglet.window.Window):
         pitch = -(self.width * len("RGB"))
         img_data = pyglet.image.get_buffer_manager().get_color_buffer().get_image_data().get_data("RGB", pitch=pitch)
         pil_im = Image.frombytes("RGB", (self.width, self.height), img_data)
-        return pil_im
+        return pil_im.resize((32, 32))
 
     def get_image_np(self) -> np.ndarray:
         pil_im = self.get_image()
