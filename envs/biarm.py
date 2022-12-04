@@ -118,6 +118,19 @@ def to_screen_pos(pos: np.ndarray, width: int, height: int) -> np.ndarray:
     return pos * scale_factor
 
 
+def from_screen_pos(pos: np.ndarray, width: int, height: int) -> np.ndarray:
+    """
+    Convert from screen coordinates (0, width) x (0, height) to normalized position (-0.5, 0.5)^2.
+    :param pos: (..., 2)
+    """
+    assert pos.shape[-1] == 2
+    scale_factor = np.array([width, height])
+    # (0, 1)^2
+    pos = pos / scale_factor
+    # (-0.5, 0.5)^2
+    return pos - 0.5
+
+
 class BiArmSim(pyglet.window.Window):
     """
     Coordinate system:
@@ -188,16 +201,7 @@ class BiArmSim(pyglet.window.Window):
         return to_screen_pos(pos, self.width, self.height)
 
     def from_screen_pos(self, pos: np.ndarray) -> np.ndarray:
-        """
-        Convert from screen coordinates (0, width) x (0, height) to normalized position (-0.5, 0.5)^2.
-        :param pos: (..., 2)
-        """
-        assert pos.shape[-1] == 2
-        scale_factor = np.array([self.width, self.height])
-        # (0, 1)^2
-        pos = pos / scale_factor
-        # (-0.5, 0.5)^2
-        return pos - 0.5
+        return from_screen_pos(pos, self.width, self.height)
 
     def add_particle(self, radius: float):
         particle_cfg = ParticleCfg(density=0.01, friction=0.6)

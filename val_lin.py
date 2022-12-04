@@ -7,7 +7,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from loguru import logger as log
 
+from envs.biarm import from_screen_pos
 from make_dset import get_npz_paths, process_img, shift_img
+from models.linear_dyn import predict_onearm
 from utils.img import save_img
 
 N_VIZ = 16
@@ -23,15 +25,15 @@ def main():
     val_path = pathlib.Path("val_imgs")
     val_path.mkdir(exist_ok=True, parents=True)
 
-    npz = np.load(npz_path)
+    raw_npz = np.load(npz_path)
 
     # (n_samples, 2, W, H)
-    imgs = npz["imgs"]
-    _, _, w, h = imgs.shape
+    imgs = raw_npz["imgs"]
+    _, _, down_w, down_h = imgs.shape
 
     sol_path = pathlib.Path("sol.npy")
     A = np.load(sol_path)
-    assert A.shape == (w * h, w * h)
+    assert A.shape == (down_w * down_h, down_w * down_h)
 
     # Plot histogram of values of A.
     ax: plt.Axes
@@ -44,43 +46,68 @@ def main():
     is_neg = A < -0.5
     A[is_neg] = -1.0
 
+    WIDTH, HEIGHT = 512, 512
+
     for ii, npz_path in enumerate(npz_paths):
         if ii == N_VIZ:
             break
 
-        npz = np.load(npz_path)
-        images, states = npz["images"], npz["states"]
+        raw_npz = np.load(npz_path)
+        images, states = raw_npz["images"], raw_npz["states"]
         assert len(images) == len(states)
 
-        pred_img = process_img(images[0], states[0, 0], w, h)
+        if len(states) < 4:
+            continue
 
-        for kk, (prev_img, new_img) in enumerate(zip(images[:-1], images[1:])):
-            downsize_factor = w / prev_img.shape[0]
+        for kk in range(1, 4):
+            start_state = from_screen_pos(states[0, 0, :2], WIDTH, HEIGHT)
+            goal_state = from_screen_pos(states[kk, 0, :2], WIDTH, HEIGHT)
+            u = np.stack([start_state, goal_state], axis=0)[None, :, :]
 
-            rot_prev = process_img(prev_img, states[kk, 0], w, h)
-            rot_new = process_img(new_img, states[kk, 0], w, h)
+            pred_img, mask = predict_onearm(A, images[0], u, 2.0, down_w, down_h)
 
-            # Cumulative.
-            if kk > 0:
-                # Shift by travel distance of arm.
-                state_diff = states[kk, 0] - states[kk - 1, 0]
-                travel_dist = np.linalg.norm(state_diff[:2])
-                shift_dist = -downsize_factor * travel_dist
-                pred_img = shift_img(pred_img, shift_dist, 0.0)
-
-                path = val_path / "{:03}_{}_0_shift.png".format(ii, kk)
-                save_img(pred_img, path, upscale=True)
-
-            pred_img_vec = pred_img.flatten()
-            pred_diff = A @ pred_img_vec
-            pred_img_vec = pred_img_vec + pred_diff
-            pred_img = pred_img_vec.reshape((w, h))
-
-            path = val_path / "{:03}_{}_1_pred.png".format(ii, kk)
+            path = val_path / "{:03}_{}_0_orig.png".format(ii, kk)
+            save_img(images[0], path, upscale=True)
+            path = val_path / "{:03}_{}_1_true.png".format(ii, kk)
+            save_img(images[kk], path, upscale=True)
+            path = val_path / "{:03}_{}_2_pred.png".format(ii, kk)
             save_img(pred_img, path, upscale=True)
+            path = val_path / "{:03}_{}_3_mask.png".format(ii, kk)
+            save_img(mask, path, upscale=True)
 
-            if kk == 3:
-                return
+            return
+
+        return
+
+        # pred_img = process_img(images[0], states[0, 0], w, h)
+        #
+        # for kk, (prev_img, new_img) in enumerate(zip(images[:-1], images[1:])):
+        #     downsize_factor = w / prev_img.shape[0]
+        #
+        #     rot_prev = process_img(prev_img, states[kk, 0], w, h)
+        #     rot_new = process_img(new_img, states[kk, 0], w, h)
+        #
+        #     # Cumulative.
+        #     if kk > 0:
+        #         # Shift by travel distance of arm.
+        #         state_diff = states[kk, 0] - states[kk - 1, 0]
+        #         travel_dist = np.linalg.norm(state_diff[:2])
+        #         shift_dist = -downsize_factor * travel_dist
+        #         pred_img = shift_img(pred_img, shift_dist, 0.0)
+        #
+        #         path = val_path / "{:03}_{}_0_shift.png".format(ii, kk)
+        #         save_img(pred_img, path, upscale=True)
+        #
+        #     pred_img_vec = pred_img.flatten()
+        #     pred_diff = A @ pred_img_vec
+        #     pred_img_vec = pred_img_vec + pred_diff
+        #     pred_img = pred_img_vec.reshape((w, h))
+        #
+        #     path = val_path / "{:03}_{}_1_pred.png".format(ii, kk)
+        #     save_img(pred_img, path, upscale=True)
+        #
+        #     if kk == 3:
+        #         return
 
     #
     # sol_path = pathlib.Path("sol.npy")

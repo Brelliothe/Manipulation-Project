@@ -9,6 +9,8 @@ from loguru import logger as log
 from PIL import ImageDraw
 from PIL.Image import AFFINE, NEAREST, Image, fromarray
 
+from utils.img import compose_affine, rotate_img, rotate_mat
+
 
 def get_npz_paths(dir_name: str) -> list[pathlib.Path]:
     data_path = pathlib.Path(dir_name)
@@ -17,7 +19,62 @@ def get_npz_paths(dir_name: str) -> list[pathlib.Path]:
     return sorted(npzs)
 
 
-def center_img(img: Image, state: np.array) -> Image:
+def center_img(img: np.ndarray, state: np.array) -> np.ndarray:
+    width, height = img.shape[0], img.shape[1]
+
+    assert state.shape == (3,)
+    px, py, theta = state
+
+    # Shift image so that the pusher is at the center.
+    # Convert coords - flip y.
+    py = height - py
+
+    center_x, center_y = width / 2, height / 2
+    shift_x = px - center_x
+    shift_y = py - center_y
+
+    log.info("np  {} {}".format(shift_x, shift_y))
+
+    M1 = np.array([[1.0, 0.0, -shift_x], [0.0, 1.0, -shift_y]])
+
+    # Rotate image so that we are always pushing to the right.
+    M2 = rotate_mat(img, -state[2])
+
+    M = compose_affine(M1, M2)
+    img = cv2.warpAffine(img, M, img.shape[1::-1], cv2.INTER_LINEAR)
+    # img = shift_img(img, -shift_x, -shift_y)
+    #
+    # rotate_rad = state[2]
+    # img = rotate_img(img, -rotate_rad, cv2.INTER_LINEAR)
+
+    return img
+
+
+def uncenter_img(img: np.ndarray, state: np.ndarray) -> np.ndarray:
+    width, height = img.shape[0], img.shape[1]
+
+    assert state.shape == (3,)
+    px, py, theta = state
+
+    # Unrotate image.
+    rotate_rad = state[2]
+    M1 = rotate_mat(img, rotate_rad)
+
+    # Unshift image.
+    py = height - py
+
+    center_x, center_y = width / 2, height / 2
+    shift_x = px - center_x
+    shift_y = py - center_y
+
+    M2 = np.array([[1.0, 0.0, shift_x], [0.0, 1.0, shift_y]])
+    M = compose_affine(M1, M2)
+    img = cv2.warpAffine(img, M, img.shape[1::-1], cv2.INTER_LINEAR)
+
+    return img
+
+
+def center_img_2(img: Image, state: np.array) -> Image:
     width, height = img.width, img.height
     # log.info("state: {}".format(state))
 
@@ -38,9 +95,12 @@ def center_img(img: Image, state: np.array) -> Image:
     d = 0
     e = 1
     f = shift_y
+
+    log.info("pil {} {}".format(shift_x, shift_y))
+
     img = img.transform(img.size, AFFINE, (a, b, c, d, e, f))
 
-    # Rotate image so that we are always pushing to the left.
+    # Rotate image so that we are always pushing to the right.
     rotate_deg = np.rad2deg(state[2])
     img = img.rotate(-rotate_deg)
 
@@ -58,6 +118,12 @@ def downsample_img(im: np.ndarray, w: int, h: int) -> np.ndarray:
     im = im.astype(float) / 255.0
     return cv2.resize(im, dsize=(w, h), interpolation=cv2.INTER_LINEAR)
     # return im.resize((w, h))
+
+
+def downsample_state(state: np.ndarray, factor: float) -> np.ndarray:
+    new_state = state.copy()
+    new_state[..., :2] *= factor
+    return new_state
 
 
 def blur_img(img: np.ndarray, sigma: float):
