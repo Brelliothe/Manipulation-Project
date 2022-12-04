@@ -13,3 +13,11 @@ dependencies:
   - scipy=1.9.3
   - pip:
     - pygame==2.1.2
+    - matplotlib
+    - einops
+    - tqdm
+    - attrs
+    - loguru
+    - seaborn
+    - ipdb
+    - typer

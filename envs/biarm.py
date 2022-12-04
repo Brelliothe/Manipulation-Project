@@ -1,17 +1,18 @@
-import numpy as np
 import time
-from loguru import logger as log
+
+import ipdb
+import numpy as np
 import pygame.color
 import pyglet.window
 import pymunk
 import pymunk.pyglet_util
 from attrs import define
+from jaxtyping import Float, Shaped
+from loguru import logger as log
 from PIL import Image
 from pyglet import gl
 from pymunk import Vec2d
 from scipy.spatial import ConvexHull
-from jaxtyping import Float, Shaped
-import ipdb
 
 
 @define
@@ -79,50 +80,69 @@ def create_particle(screen_pos: np.ndarray, radius: float, cfg: ParticleCfg, *, 
 def create_pusher(spos: np.ndarray, theta: float, cfg: PusherCfg) -> Pusher:
     assert spos.shape == (2,)
     GREEN = (0, 255, 0, 255)
+    # TRANSPARENT = (0, 0, 0, 0)
+
+    PUSHER_COLOR = GREEN
 
     body = pymunk.Body(mass=cfg.mass, moment=cfg.inertia)
     body.position = (spos[0], spos[1])
+    # angle is always 0. We put the angle info in the shape.
+    body.angle = 0
 
     # Pusher is perpendicular to push direction.
     theta = theta - np.pi / 2
 
     offset = np.array([cfg.bar_width / 2.0 * np.cos(theta), cfg.bar_width / 2.0 * np.sin(theta)])
 
-    start = + offset
-    end = - offset
+    start = +offset
+    end = -offset
 
     shape = pymunk.Segment(body, start.tolist(), end.tolist(), cfg.radius)
     shape.elasticity = cfg.elasticity
     shape.friction = cfg.friction
-    shape.color = GREEN
+    shape.color = PUSHER_COLOR
 
     return Pusher(body, shape)
 
 
+def to_screen_pos(pos: np.ndarray, width: int, height: int) -> np.ndarray:
+    """
+    Convert from normalized position (-0.5, 0.5)^2 to screen coordinates (0, width) x (0, height)
+    :param pos: (..., 2)
+    """
+    assert pos.shape[-1] == 2
+    # (0, 1)^2
+    pos = pos + 0.5
+    # (2, )
+    scale_factor = np.array([width, height])
+    return pos * scale_factor
+
+
 class BiArmSim(pyglet.window.Window):
     """
-        Coordinate system:
+    Coordinate system:
 
-                ↑
-                ╎
-          ↑     ╎
-          │     ╎
-        height  ╎
-          │     ╎
-          ↓     ╎
-                ╎
-                ┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌→
-                    ←---   width   ---→
+            ↑
+            ╎
+      ↑     ╎
+      │     ╎
+    height  ╎
+      │     ╎
+      ↓     ╎
+            ╎
+            ┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌→
+                ←---   width   ---→
     """
 
-    def __init__(self):
+    def __init__(self, n_arms: int = 2, do_render: bool = False, render_arm: bool = False):
         super().__init__(vsync=False)
 
         # Sim window parameters. These also define the resolution of the image
         # Ruixiao: I changeed the height, width and the following parameter to match up Terry's paper
-        self.width = 500
-        self.height = 300
-        self.set_caption("BiArmSim")
+        self.width = 512
+        self.height = 512
+        self.n_arms = n_arms
+        self.set_caption("BiArmSim ({} arms)".format(n_arms))
 
         # Simulation parameters.
         self.bar_width = 80.0
@@ -141,11 +161,13 @@ class BiArmSim(pyglet.window.Window):
         self.draw_options = pymunk.pyglet_util.DrawOptions()
         self.draw_options.flags = self.draw_options.DRAW_SHAPES
 
+        self.draw_options.shape_outline_color = (255, 255, 255, 0)
+
         self.rng = np.random.default_rng(seed=84123)
+        self.do_render = do_render
+        self.render_arm = render_arm
 
         self.create_world()
-
-        self.render_every = 1
 
     def create_world(self):
         self.space.gravity = Vec2d(0.0, 0.0)
@@ -154,28 +176,21 @@ class BiArmSim(pyglet.window.Window):
         self.space.iterations = 10
 
         self.add_particles(self.particle_num, self.particle_size)
-        self.advance_s(1.0)
+        self.advance_s(2.0)
 
-        # Somehow need to call this twice.
         self.render_to_screen()
-        self.render_to_screen()
+
+        # Somehow need to call this twice if we want it to show up on screen.
+        if self.do_render:
+            self.render_to_screen()
 
     def to_screen_pos(self, pos: np.ndarray) -> np.ndarray:
-        """
-            Convert from normalized position (-0.5, 0.5)^2 to screen coordinates (0, width) x (0, height)
-            :param pos: (..., 2)
-        """
-        assert pos.shape[-1] == 2
-        # (0, 1)^2
-        pos = pos + 0.5
-        # (2, )
-        scale_factor = np.array([self.width, self.height])
-        return pos * scale_factor
+        return to_screen_pos(pos, self.width, self.height)
 
     def from_screen_pos(self, pos: np.ndarray) -> np.ndarray:
         """
-            Convert from screen coordinates (0, width) x (0, height) to normalized position (-0.5, 0.5)^2.
-            :param pos: (..., 2)
+        Convert from screen coordinates (0, width) x (0, height) to normalized position (-0.5, 0.5)^2.
+        :param pos: (..., 2)
         """
         assert pos.shape[-1] == 2
         scale_factor = np.array([self.width, self.height])
@@ -207,7 +222,7 @@ class BiArmSim(pyglet.window.Window):
         self.particles = []
 
     def add_pusher(self, spos: np.ndarray, theta: np.ndarray):
-        mass, inertia, elasticity, friction = 100., 1e12, 0.1, 0.6
+        mass, inertia, elasticity, friction = 100.0, 1e12, 0.1, 0.6
         radius = 5
         bar_width = 80.0
         pusher_cfg = PusherCfg(mass, inertia, elasticity, friction, bar_width, radius)
@@ -221,33 +236,35 @@ class BiArmSim(pyglet.window.Window):
 
     def add_pushers(self, sposes: np.ndarray, thetas: np.ndarray):
         """
-        :param sposes: (2, 2)
-        :param thetas: (2, )
+        :param sposes: (n_pushers, 2)
+        :param thetas: (n_pushers, )
         """
         # log.info("thetas: {}".format(thetas))
-        n_pushers = sposes.shape[0]
-        for ii in range(n_pushers):
+        assert sposes.shape == (self.n_arms, 2)
+        for ii in range(self.n_arms):
             self.add_pusher(sposes[ii], thetas[ii])
 
         # log.info("spos[0]: {}, pusher pos: {}".format(sposes[0], self.pushers[0].body.position))
-
 
     def remove_pushers(self) -> None:
         for pusher in self.pushers:
             self.space.remove(pusher.shape, pusher.body)
         self.pushers = []
 
-    def apply_control(self, u: Float[np.ndarray, "8"]) -> None:
+    def apply_control(
+        self, u: Float[np.ndarray, "8"], render_at_length: float | None = None
+    ) -> tuple[list[Image], dict]:
         """
         Apply a control action, run the simulation forward then return.
-        :param u: (8, ) within (-0.5, 0.5). (2, 2, 2), where
+        :param u: (8, ) within (-0.5, 0.5) OR (n_arms, 2, N_COORDS=2), where
             Initial (2, ) denotes which arm.
             Final (2, 2) is [ (x0, y0), (xf, yf) ].
+        :param render_at_length: How often to render.
         """
-        if u.shape == (8,):
-            u = u.reshape((2, 2, 2))
+        if u.shape == (self.n_arms * 2,):
+            u = u.reshape((self.n_arms, 2, 2))
 
-        assert u.shape == (2, 2, 2)
+        assert u.shape == (self.n_arms, 2, 2)
         spos = self.to_screen_pos(u)
 
         # (2, 2)
@@ -260,7 +277,7 @@ class BiArmSim(pyglet.window.Window):
 
         thetas = np.arctan2(x_diff[:, 1], x_diff[:, 0])
         target_push_lengths = np.linalg.norm(x_diff, axis=1)
-        assert thetas.shape == target_push_lengths.shape == (2,)
+        assert thetas.shape == target_push_lengths.shape == (self.n_arms,)
 
         # (n_pushers, 2)
         force_vecs = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
@@ -281,26 +298,40 @@ class BiArmSim(pyglet.window.Window):
         max_steps = 10_000
         v_err_hist = np.zeros((max_steps, n_pushers))
 
+        images = []
+        pusher_states = []
+
+        save_at_length = 0.0
+
         steps = 0
         while True:
             t1 = time.time()
             # Check if we have reached the goal.
-            reached_goal = self.has_reached_goal(x0s, target_push_lengths, atol=goal_atol)
+            reached_goal, push_lengths = self.has_reached_goal(x0s, target_push_lengths, atol=goal_atol)
             if np.any(reached_goal):
                 # log.info("Reached goal!")
                 break
 
-            # if self.render_every > 0 and steps % self.render_every == 0:
-            #     t3 = time.time()
-            #     self.render_to_screen()
-            #     t4 = time.time()
-            #     ms = (t4 - t3) * 1e3
-            #     log.info("Render time: {:.2f} ms".format(ms, ))
+            if render_at_length is not None:
+                push_length = push_lengths[0]
+                if push_length >= save_at_length:
+                    self.clear_screen()
+                    self.debug_draw()
+                    images.append(self.get_image())
+
+                    # (n_pushers, 2)
+                    pusher_poss = np.stack([pusher.body.position for pusher in self.pushers], axis=0)
+                    # (n_pushers, )
+                    pusher_angles = thetas + np.stack([pusher.body.angle for pusher in self.pushers], axis=0)
+                    pusher_state = np.concatenate([pusher_poss, pusher_angles[:, None]], axis=1)
+                    pusher_states.append(pusher_state)
+
+                    save_at_length += render_at_length
 
             vels = np.stack([np.linalg.norm(pusher.body.velocity) for pusher in self.pushers], axis=0)
             v_err_hist[steps] = vels - v_noms
             # (n_pushers, )
-            forces = self.pusher_controller(vels, v_noms, v_err_hist[:steps + 1])
+            forces = self.pusher_controller(vels, v_noms, v_err_hist[: steps + 1])
 
             # log.info("v: {}, v_nom: {}".format(vels, v_noms))
 
@@ -336,20 +367,30 @@ class BiArmSim(pyglet.window.Window):
         self.remove_pushers()
         # self.render_to_screen()
 
-        return
+        if len(pusher_states) > 0:
+            pusher_states = np.stack(pusher_states, axis=0)
 
-    def has_reached_goal(self, x0s: np.ndarray, target_push_length: np.ndarray, atol: float = 3.0) -> np.ndarray:
+        info = {"steps": steps, "pusher_state": pusher_states}
+
+        return images, info
+
+    def has_reached_goal(
+        self, x0s: np.ndarray, target_push_length: np.ndarray, atol: float = 3.0
+    ) -> tuple[np.ndarray, np.ndarray]:
         assert len(x0s) == len(target_push_length) == len(self.pushers)
         n_pushers = len(self.pushers)
 
         has_reached = np.zeros(n_pushers, dtype=bool)
+        push_lengths = []
         for ii in range(n_pushers):
             spos = self.pushers[ii].body.position
             push_length = np.linalg.norm(spos - x0s[ii])
+            push_lengths.append(push_length)
 
             has_reached[ii] = np.abs(target_push_length[ii] - push_length) < atol
+        push_lengths = np.array(push_lengths)
 
-        return has_reached
+        return has_reached, push_lengths
 
     def pusher_controller(self, vs: np.ndarray, v_noms: np.ndarray, v_err_hist: np.ndarray):
         """
@@ -358,7 +399,7 @@ class BiArmSim(pyglet.window.Window):
         :param v_err_hist: (hist_length, n_pushers)
         :return:
         """
-        k_p, k_i, k_d = 1_000., 100., 1.0
+        k_p, k_i, k_d = 1_000.0, 100.0, 1.0
         # k_p, k_i, k_d = 0., 100., 0.
 
         v_err = vs - v_noms
@@ -384,19 +425,45 @@ class BiArmSim(pyglet.window.Window):
             t += step_dt
 
     def on_draw(self):
-        self.graphics_batch.draw()
+        pass
+        # self.graphics_batch.draw()
 
         # # This isn't called anywhere.
         # raise NotImplementedError("on_draw called!")
         # self.render()
 
-    def render_to_screen(self):
-        pyglet.clock.tick()
-
+    def clear_screen(self):
         self.clear()
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
         gl.glLoadIdentity()
+
+    def debug_draw(self, draw_pusher: bool = False):
+        # log.info("use_chipmunk_debug_draw: {}".format(self.draw_options._use_chipmunk_debug_draw))
+
+        if not self.render_arm:
+            # Remove pusher, draw, then add pusher back.
+            for pusher in self.pushers:
+                self.space.remove(pusher.shape, pusher.body)
+
         self.space.debug_draw(self.draw_options)
+
+        if not self.render_arm:
+            for pusher in self.pushers:
+                self.space.add(pusher.shape, pusher.body)
+
+        # # Only draw the particles.
+        # for particle in self.particles:
+        #     self.draw_options.draw_shape(particle.shape)
+
+        # if draw_pusher:
+        #     for pusher in self.pushers:
+        #         self.draw_options.draw_shape(pusher.shape)
+
+    def render_to_screen(self):
+        pyglet.clock.tick()
+
+        self.clear_screen()
+        self.debug_draw()
         self.dispatch_events()  # necessary to refresh somehow....
         self.dispatch_event("on_draw")
         self.flip()
@@ -406,7 +473,8 @@ class BiArmSim(pyglet.window.Window):
         pitch = -(self.width * len("RGB"))
         img_data = pyglet.image.get_buffer_manager().get_color_buffer().get_image_data().get_data("RGB", pitch=pitch)
         pil_im = Image.frombytes("RGB", (self.width, self.height), img_data)
-        return pil_im.resize((32, 32))
+        # return pil_im.resize((32, 32))
+        return pil_im
 
     def get_image_np(self) -> np.ndarray:
         pil_im = self.get_image()
@@ -419,9 +487,11 @@ class BiArmSim(pyglet.window.Window):
     def get_current_image(self):
         return self.image
 
-    def refresh(self):
-        # pass
+    def refresh(self, particle_num: int | None = None):
+        if particle_num is None:
+            particle_num = self.particle_num
+
         self.remove_particles()
-        self.add_particles(self.particle_num, self.particle_size)
-        self.wait(1.0)  # Give some time for collision pieces to stabilize.
+        self.add_particles(particle_num, self.particle_size)
+        self.advance_s(2.0)  # Give some time for collision pieces to stabilize.
         self.render_to_screen()
