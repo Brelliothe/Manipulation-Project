@@ -131,6 +131,39 @@ def from_screen_pos(pos: np.ndarray, width: int, height: int) -> np.ndarray:
     return pos - 0.5
 
 
+def control_info(u: np.ndarray, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    :param u: (n_arms, 2, n_coord=2)
+    :param width:
+    :param height:
+    """
+    spos = to_screen_pos(u, width, height)
+    x0s, xfs = spos[:, 0, :], spos[:, 1, :]
+    x_diff = xfs - x0s
+
+    # (n_arms, )
+    thetas = np.arctan2(x_diff[:, 1], x_diff[:, 0])
+    # (n_arms, )
+    target_push_lengths = np.linalg.norm(x_diff, axis=1)
+
+    return thetas, target_push_lengths
+
+
+def control_to_state(u: np.ndarray, width: int, height: int) -> np.ndarray:
+    n_arms = u.shape[0]
+    spos = to_screen_pos(u, width, height)
+    # (n_arms, 2)
+    x0s, xfs = spos[:, 0, :], spos[:, 1, :]
+    # (n_arms, )
+    thetas, target_push_lengths = control_info(u, width, height)
+
+    # (n_arms, 3)
+    start_state = np.concatenate([x0s, thetas[:, None]], axis=1)
+    assert start_state.shape == (n_arms, 3)
+
+    return start_state
+
+
 class BiArmSim(pyglet.window.Window):
     """
     Coordinate system:
@@ -276,8 +309,6 @@ class BiArmSim(pyglet.window.Window):
 
         # (2, 2)
         x_diff = xfs - x0s
-        # log.info("x0:\n{}".format(x0s))
-        # log.info("xf:\n{}".format(xfs))
 
         thetas = np.arctan2(x_diff[:, 1], x_diff[:, 0])
         target_push_lengths = np.linalg.norm(x_diff, axis=1)

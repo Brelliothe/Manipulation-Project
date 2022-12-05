@@ -8,15 +8,8 @@ from einops.layers.torch import Rearrange
 from loguru import logger as log
 from PIL.Image import fromarray
 
-from envs.biarm import to_screen_pos
-from make_dset import (
-    center_img,
-    center_img_2,
-    downsample_img,
-    downsample_state,
-    shift_img,
-    uncenter_img,
-)
+from envs.biarm import control_info, control_to_state, to_screen_pos
+from make_dset import center_img, center_img_2, downsample_img, downsample_state, shift_img, uncenter_img
 from utils.img import rotate_img, save_img
 
 
@@ -49,7 +42,70 @@ def apply_linear(A: np.ndarray, im0: np.ndarray):
     return im0 + delta
 
 
-def predict_onearm(A: np.ndarray, im0: np.ndarray, u: np.ndarray, A_length: float, down_w: int, down_h: int):
+def predict_onearm(
+    As: np.ndarray, train_angles: np.ndarray, im0: np.ndarray, u: np.ndarray, A_length: float, down_w: int, down_h: int
+):
+    """
+    :param As: (n_angles, w * h, w * h)
+    :param train_angles:
+    :param im0: (w, h)
+    :param u:
+    :param A_length:
+    :param down_w:
+    :param down_h:
+    """
+    WIDTH, HEIGHT = 512, 512
+    thetas, push_lengths = control_info(u, WIDTH, HEIGHT)
+    start_state = control_to_state(u, WIDTH, HEIGHT).squeeze()
+    theta, push_length = thetas.squeeze(), push_lengths.squeeze()
+
+    # Get which A to use.
+    theta_idx = np.argmin((theta - train_angles) ** 2)
+    A = As[theta_idx]
+
+    # Shift image and mask to center.
+    start_state_norot = start_state.copy()
+    start_state_norot[2] = 0
+    mask = np.ones_like(im0, dtype=float)
+    centered_im0, mask = center_img(im0, start_state), center_img(mask, start_state)
+
+    # Downsample.
+    down_orig = downsample_img(im0, down_w, down_h)
+    down_im0 = downsample_img(centered_im0, down_w, down_h)
+    mask = downsample_img(mask, down_w, down_h)
+
+    # How many times to apply A.
+    factor = down_w / im0.shape[0]
+    assert factor < 1
+    downsampled_start_state = downsample_state(start_state, factor)
+
+    n_apply = np.round(push_length * factor / A_length).astype(int)
+
+    # Apply A n_apply times.
+    pred_img = down_im0
+    for kk in range(n_apply):
+        if kk > 0:
+            # Shift by A_length.
+            pred_img = shift_img(pred_img, -A_length, 0.0, cv2.INTER_NEAREST)
+            mask = shift_img(mask, -A_length, 0.0, cv2.INTER_NEAREST)
+
+        pred_img = apply_linear(A, pred_img)
+
+    # Unshift image.
+    pred_img = shift_img(pred_img, A_length * (n_apply - 1), 0.0, cv2.INTER_NEAREST)
+    mask = shift_img(mask, A_length * (n_apply - 1), 0.0, cv2.INTER_NEAREST)
+
+    # Unshift image.
+    pred_img = uncenter_img(pred_img, downsampled_start_state, cv2.INTER_CUBIC)
+    mask = uncenter_img(mask, downsampled_start_state, cv2.INTER_CUBIC)
+
+    # Finally, use mask to restore the unchanged regions.
+    pred_img = mask * pred_img + (1.0 - mask) * down_orig
+
+    return pred_img, mask
+
+
+def predict_onearm_old(A: np.ndarray, im0: np.ndarray, u: np.ndarray, A_length: float, down_w: int, down_h: int):
     """
     :param A:
     :param im0: (orig_w, orig_h)

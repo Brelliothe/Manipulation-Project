@@ -111,9 +111,9 @@ def shift_img(img: np.ndarray, tx: float, ty: float, shift_interp=cv2.INTER_LINE
     return shifted
 
 
-def downsample_img(im: np.ndarray, w: int, h: int, interp_mode=cv2.INTER_LINEAR) -> np.ndarray:
-    assert im.dtype == np.int32 or im.dtype == np.uint8
-    im = im.astype(float) / 255.0
+def downsample_img(im: np.ndarray, w: int, h: int, interp_mode=cv2.INTER_AREA) -> np.ndarray:
+    # assert im.dtype == np.int32 or im.dtype == np.uint8
+    assert im.dtype == np.float32 or im.dtype == np.float64
     return cv2.resize(im, dsize=(w, h), interpolation=interp_mode)
     # return im.resize((w, h))
 
@@ -124,12 +124,19 @@ def downsample_state(state: np.ndarray, factor: float) -> np.ndarray:
     return new_state
 
 
+def to_float_img(im: np.ndarray) -> np.ndarray:
+    assert im.dtype == np.int32 or im.dtype == np.uint8
+    assert im.min() == 0 and im.max() == 255
+    im = im.astype(np.float32) / 255.0
+    return im
+
+
 def blur_img(img: np.ndarray, sigma: float):
     return cv2.GaussianBlur(img, ksize=(0, 0), sigmaX=sigma)
 
 
 def process_img(
-    img: np.ndarray, state: np.ndarray, w: int, h: int, shift_interp=cv2.INTER_LINEAR, downsample_interp=cv2.INTER_AREA
+    img: np.ndarray, state: np.ndarray, w: int, h: int, shift_interp=cv2.INTER_CUBIC, downsample_interp=cv2.INTER_AREA
 ) -> np.ndarray:
     # img = np.asarray(center_img(fromarray(img), state))
     img = center_img(img, state, interp_mode=shift_interp)
