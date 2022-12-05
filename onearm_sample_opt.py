@@ -9,7 +9,7 @@ from loguru import logger as log
 from torch.nn.functional import relu
 
 from envs.biarm import BiArmSim
-from make_dset import downsample_img
+from make_dset import downsample_img, to_float_img
 from models.linear_dyn import predict_onearm
 from utils.img import save_img
 
@@ -17,7 +17,8 @@ N_ACTIONS = 4
 PUSH_FRAMES = 1
 
 
-def sample_controls(batch: int) -> torch.Tensor:
+def sample_controls(batch: int, angle_fracs: torch.Tensor) -> torch.Tensor:
+    (n_angles,) = angle_fracs.shape
     LIMS = 0.4
     WIDTH = 512
     PUSH_DIST = 32 * PUSH_FRAMES / WIDTH
@@ -27,8 +28,9 @@ def sample_controls(batch: int) -> torch.Tensor:
     # (batch, 2)
     init = pos_dist.sample((batch, 2))
 
-    angle_dist = td.Uniform(-np.pi, np.pi)
-    angles = angle_dist.sample((batch,))
+    angle_frac_idx = torch.randint(n_angles, (batch,))
+    n_90s = torch.randint(4, (batch,))
+    angles = angle_fracs[angle_frac_idx] + n_90s * np.pi / 2
 
     # (batch, 2)
     delta = PUSH_DIST * torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
@@ -50,7 +52,7 @@ def cost_fn(im: torch.Tensor) -> torch.Tensor:
 
     xs = ei.rearrange(xs, "x -> x 1")
     ys = ei.rearrange(ys, "y -> 1 y")
-    dists = torch.sqrt(xs ** 2 + ys ** 2)
+    dists = torch.sqrt(xs**2 + ys**2)
 
     # (w, h)
     cost_mat = relu(dists - 3.0) ** 2
@@ -66,10 +68,15 @@ def main():
     batch = 64
 
     down_w, down_h = 32, 32
-    sol_path = pathlib.Path("sol.npy")
-    A = np.load(sol_path)
-    assert A.shape == (down_w * down_h, down_w * down_h)
-    # A = torch.Tensor(A)
+    sol_path = pathlib.Path("sol.npz")
+    npz = np.load(sol_path)
+    As, angle_fracs, push_frames = npz["As"], npz["angle_fracs"], npz["push_frames"]
+
+    (n_angles,) = angle_fracs.shape
+    train_angles = angle_fracs * np.pi / 2
+    angle_fracs = torch.Tensor(angle_fracs)
+
+    assert As.shape == (n_angles, down_w * down_h, down_w * down_h)
 
     A_length = 32 * 32 * PUSH_FRAMES / 512
 
@@ -85,8 +92,8 @@ def main():
             im0 = sim.get_image_grayscale_np()
 
             # Convert to grayscale.
+            im0 = to_float_img(im0)
             downsampled_img = downsample_img(im0, down_w, down_h)
-
             downsampled_img = torch.Tensor(downsampled_img)
 
         # Save the image.
@@ -96,13 +103,13 @@ def main():
         initial_cost = cost_fn(downsampled_img)
 
         # 3: Sample controls.
-        us = sample_controls(batch)
+        us = sample_controls(batch, angle_fracs)
         us = us.cpu().numpy()
 
         # 4: Forward simulate using learned dynamics model.
         im1s = []
         for u in us:
-            im1, mask = predict_onearm(A, im0, u, A_length, down_w, down_h)
+            im1, mask = predict_onearm(As, train_angles, im0, u, A_length, down_w, down_h)
             im1s.append(im1)
         torch_im1s = torch.Tensor(np.stack(im1s, axis=0))
         new_costs = cost_fn(torch_im1s)
@@ -127,6 +134,7 @@ def main():
         im0 = sim.get_image_grayscale_np()
 
         # Convert to grayscale.
+        im0 = to_float_img(im0)
         downsampled_img = downsample_img(im0, down_w, down_h)
         downsampled_img = torch.Tensor(downsampled_img)
         final_cost = cost_fn(downsampled_img)
