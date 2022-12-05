@@ -38,10 +38,18 @@ def upscale_img(img: np.ndarray, factor: int) -> np.ndarray:
 def draw_pushbox(img: np.ndarray, pushrect: tuple[float, float, float], pix_size: float) -> np.ndarray:
     cen_c, cen_r = img.shape[0] / 2, img.shape[1] / 2
 
-    center = (cen_r + pushrect[1] / 2, cen_c - pix_size / 2)
+    # center = (cen_r + pushrect[1] / 2, cen_c - pix_size / 2)
+    # center = (cen_r, cen_c)
+    # center = (0, -pix_size / 2)
+    center = (0, 0)
+    angle = pushrect[2]
     size = (pushrect[1], pushrect[0])
     box = (center, size, -np.rad2deg(pushrect[2]))
     push_rect = cv2.boxPoints(box)
+
+    # Move the rotated rectangle, so that the middle of the left edge intersects the center.
+    width = pushrect[1] / 2
+    push_rect += np.array([cen_r + np.cos(angle) * width, cen_c - np.sin(angle) * width])
     push_rect = np.round(push_rect).astype(int)
 
     # log.info("draw pushbox dtype={}".format(img.dtype))

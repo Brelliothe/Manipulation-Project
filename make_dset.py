@@ -139,7 +139,7 @@ def process_img(
     return img
 
 
-PUSH_FRAMES = 1
+PUSH_FRAMES = 2
 N_ANGLES = 4
 
 
@@ -200,10 +200,11 @@ def main():
                     diff_img = cmap(diff)[:, :, :3]
 
                     UP_FACTOR = 16
-                    push_w, push_l = 5, 2
+                    push_w, push_l = 6, 2 * PUSH_FRAMES
                     pushrect = (UP_FACTOR * push_w, UP_FACTOR * push_l, angle)
                     before, after, diff_img = [
-                        draw_pushbox(upscale_img(img, factor=UP_FACTOR), pushrect, UP_FACTOR) for img in [before, after, diff_img]
+                        draw_pushbox(upscale_img(img, factor=UP_FACTOR), pushrect, UP_FACTOR)
+                        for img in [before, after, diff_img]
                     ]
 
                     preview_path = dset_path / "preview_{:05}_rot{:.2f}.png".format(ii, angle_frac)
@@ -227,7 +228,7 @@ def main():
     imgs = imgs.astype(np.float32)
 
     npz_path = dset_path / "data.npz"
-    np.savez(npz_path, imgs=imgs)
+    np.savez(npz_path, imgs=imgs, angle_fracs=angle_fracs, push_frames=PUSH_FRAMES)
     log.info(
         "Saved shape {} to {}, dtype={}, min={}, max={}!".format(
             imgs.shape, npz_path, imgs.dtype, imgs.min(), imgs.max()
