@@ -166,3 +166,5 @@ data_old
 test_log
 *.tar.lrz
 scripts/plots
+plots
+*.npz
