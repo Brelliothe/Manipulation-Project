@@ -1,12 +1,15 @@
 import pathlib
-import torch
 
 import einops as ei
 import ipdb
+import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from loguru import logger as log
 
 from training.train_linear_dyn import LinearDynTrainer
+from utils.conversions import tonp
+from utils.img import draw_pushbox, save_img, upscale_img
 
 
 def main():
@@ -14,22 +17,80 @@ def main():
     npz = np.load(npz_path)
     log.info("loaded!")
 
-    # (n_samples, 2, W, H)
-    imgs = npz["imgs"]
+    # (n_samples, n_angles, 2, W, H)
+    imgs, angle_fracs, push_frames = npz["imgs"], npz["angle_fracs"], npz["push_frames"]
+    push_frames = int(push_frames)
     log.info("imgs.shape: {}, dtype={}, min={}, max={}".format(imgs.shape, imgs.dtype, imgs.min(), imgs.max()))
+
+    n_samples, n_angles, _, w, h = imgs.shape
 
     device = torch.device("cuda:0")
 
-    im0, im1 = torch.Tensor(imgs[:, 0, :, :]), torch.Tensor(imgs[:, 1, :, :])
+    # (n_samples, n_angles, W, H)
+    im0, im1 = torch.Tensor(imgs[:, :, 0, :, :]), torch.Tensor(imgs[:, :, 1, :, :])
+
+    im0, im1 = im0[:, 0], im1[:, 0]
     im0, im1 = im0.to(device), im1.to(device)
 
-    # # Initialize with least squares fit.
-    # im0_vec = ei.rearrange(im0, "batch W H -> batch (W H)")
-    # im1_vec = ei.rearrange(im1, "batch W H -> batch (W H)")
-    # delta_vec = im1_vec - im0_vec
-    # # [-1, 1]
-    # log.info("delta min={}, max={}".format(delta_vec.min(), delta_vec.max()))
+    # Initialize with least squares fit.
+    im0_vec = ei.rearrange(im0, "batch W H -> batch (W H)")
+    im1_vec = ei.rearrange(im1, "batch W H -> batch (W H)")
+    delta_vec = im1_vec - im0_vec
+    # [-1, 1]
+    log.info("delta min={}, max={}".format(delta_vec.min(), delta_vec.max()))
+
+    # Solve least-squares using SVD.
+    ls_A = im0_vec
+    ls_B = delta_vec
+    # U: (n_samples, w*h), S: (w*h, ), Vh: (w*h, w*h)
+    U, S, Vh = torch.linalg.svd(ls_A, full_matrices=False)
+
+    # Regularize S.
+    S = torch.clip(S, min=0.1)
+    S_inv = 1 / S
+
+    ls_A = Vh.T @ torch.diag(S_inv) @ (U.T @ ls_B)
+    assert ls_A.shape == (w * h, w * h)
+    log.info("{} {} {}".format(U.shape, S.shape, Vh.shape))
+
+    # Evaluate the least squares.
+    rng = np.random.default_rng(seed=1742)
+    N_EVAL = 8
+    eval_idxs = rng.choice(n_samples, N_EVAL, replace=False)
+    pred_im1_vec = tonp(im0_vec[eval_idxs] @ ls_A + im0_vec[eval_idxs])
+    true_im1_vec = tonp(im1_vec[eval_idxs])
+
+    pred_im1 = ei.rearrange(pred_im1_vec, "batch (W H) -> batch W H", W=w, H=h)
+    true_im1 = ei.rearrange(true_im1_vec, "batch (W H) -> batch W H", W=w, H=h)
+
+    # [-1, 1]
+    diff = true_im1 - pred_im1
+    diff = (diff + 1) / 2
+    cmap = plt.get_cmap("RdBu")
+    diff_img = cmap(diff)[:, :, :, :3]
+
+    pred_im1, true_im1 = [ei.repeat(im, "batch W H -> batch W H 3") for im in [pred_im1, true_im1]]
+
+    UP_FACTOR = 4
+    angle = 0.0
+    push_w, push_l = 6, 2 * push_frames
+    pushrect = (UP_FACTOR * push_w, UP_FACTOR * push_l, angle)
+
+    pred_im1, true_im1, diff_img = [
+        np.stack([draw_pushbox(upscale_img(im, UP_FACTOR), pushrect, UP_FACTOR) for im in ims], axis=0)
+        for ims in [pred_im1, true_im1, diff_img]
+    ]
+
+    plot_dir = pathlib.Path(__file__).parent / "plots"
+    plot_dir.mkdir(exist_ok=True, parents=True)
+
+    # Each instance is a row. Stack rows.
+    images = ei.rearrange([pred_im1, true_im1, diff_img], "three b H W dim -> (b H) (three W) dim", dim=3)
+    save_img(images, plot_dir / "lstsq_val.png")
+    exit(0)
+
     # lstsq_A, resid, rank, s = torch.linalg.lstsq(im0_vec, delta_vec, 1e-8)
+
     # log.info("Residuals mean={}, max={}".format(resid.mean(), resid.max()))
 
     # cfg = LinearDynTrainer.Cfg(10_000, 4e-3, 2e-2)
@@ -40,11 +101,9 @@ def main():
     np.save("sol.npy", A)
     log.info("Done!")
 
-
     # (nx, ) (batch, nx)
     # x^T A^T = b^T
     # x x^T A^T = x b^T
-
 
     log.info("lstsq...")
     # # lhs = img0.T @ img0 + reg_term

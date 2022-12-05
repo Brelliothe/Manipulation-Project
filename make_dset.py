@@ -167,6 +167,7 @@ def main():
         assert len(images) == len(states)
 
         images = images[::PUSH_FRAMES]
+        states = states[::PUSH_FRAMES]
         if len(images) < 2:
             continue
 
