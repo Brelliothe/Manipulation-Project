@@ -5,11 +5,12 @@ import einops as ei
 import ipdb
 import matplotlib.pyplot as plt
 import numpy as np
+import tqdm
 from loguru import logger as log
 from PIL import ImageDraw
 from PIL.Image import AFFINE, NEAREST, Image, fromarray
 
-from utils.img import compose_affine, rotate_img, rotate_mat
+from utils.img import compose_affine, draw_pushbox, rotate_img, rotate_mat, save_img, upscale_img
 
 
 def get_npz_paths(dir_name: str) -> list[pathlib.Path]:
@@ -110,9 +111,10 @@ def shift_img(img: np.ndarray, tx: float, ty: float, shift_interp=cv2.INTER_LINE
     return shifted
 
 
-def downsample_img(im: np.ndarray, w: int, h: int) -> np.ndarray:
+def downsample_img(im: np.ndarray, w: int, h: int, interp_mode=cv2.INTER_LINEAR) -> np.ndarray:
+    assert im.dtype == np.int32 or im.dtype == np.uint8
     im = im.astype(float) / 255.0
-    return cv2.resize(im, dsize=(w, h), interpolation=cv2.INTER_LINEAR)
+    return cv2.resize(im, dsize=(w, h), interpolation=interp_mode)
     # return im.resize((w, h))
 
 
@@ -126,16 +128,19 @@ def blur_img(img: np.ndarray, sigma: float):
     return cv2.GaussianBlur(img, ksize=(0, 0), sigmaX=sigma)
 
 
-def process_img(img: np.ndarray, state: np.ndarray, w: int, h: int) -> np.ndarray:
+def process_img(
+    img: np.ndarray, state: np.ndarray, w: int, h: int, shift_interp=cv2.INTER_LINEAR, downsample_interp=cv2.INTER_AREA
+) -> np.ndarray:
     # img = np.asarray(center_img(fromarray(img), state))
-    img = center_img(img, state)
+    img = center_img(img, state, interp_mode=shift_interp)
     # img = blur_img(img, 1.0)
-    img = downsample_img(img, w, h)
+    img = downsample_img(img, w, h, interp_mode=downsample_interp)
     # img = blur_img(img, 0.1)
     return img
 
 
 PUSH_FRAMES = 1
+N_ANGLES = 4
 
 
 def main():
@@ -153,8 +158,10 @@ def main():
 
     cmap = plt.get_cmap("RdBu")
 
+    angle_fracs = np.linspace(0, 1.0, N_ANGLES + 1)[:-1]
+
     all_img_stacks = []
-    for ii, npz_path in enumerate(npz_paths):
+    for ii, npz_path in enumerate(tqdm.tqdm(npz_paths)):
         npz = np.load(npz_path)
         images, states = npz["images"], npz["states"]
         assert len(images) == len(states)
@@ -168,38 +175,54 @@ def main():
 
         img_stacks = []
         for kk, (prev_img, new_img) in enumerate(zip(images[:-1], images[1:])):
-            rot_prev = process_img(prev_img, states[kk, 0], DOWN_W, DOWN_H)
-            rot_new = process_img(new_img, states[kk, 0], DOWN_W, DOWN_H)
+            angle_img_stacks = []
+            for angle_frac in angle_fracs:
+                angle = angle_frac * np.pi / 2
 
-            # (2, W, H)
-            img_stack = np.stack([rot_prev, rot_new], axis=0)
+                state = states[kk, 0].copy()
+                state[2] -= angle
 
-            # Save preview.
-            if kk == 0 and ii < 10:
-                before = ei.repeat(img_stack[0], "h w -> h w 3")
-                after = ei.repeat(img_stack[1], "h w -> h w 3")
+                rot_prev = process_img(prev_img, state, DOWN_W, DOWN_H, shift_interp=cv2.INTER_CUBIC)
+                rot_new = process_img(new_img, state, DOWN_W, DOWN_H, shift_interp=cv2.INTER_CUBIC)
 
-                # [-1, 1]
-                diff = img_stack[1] - img_stack[0]
-                diff = (diff + 1) / 2
-                diff_img = cmap(diff)[:, :, :3]
+                # (2, W, H)
+                img_stack = np.stack([rot_prev, rot_new], axis=0)
+                angle_img_stacks.append(img_stack)
 
-                preview_path = dset_path / "preview_{:05}.png".format(ii)
-                preview_img = ei.rearrange([before, after, diff_img], "b h w dim -> h (b w) dim", b=3)
-                preview_img = cv2.resize(preview_img, dsize=None, fx=8, fy=8, interpolation=cv2.INTER_NEAREST)
-                cv2.imwrite(str(preview_path), (preview_img * 255).astype(int))
-                # preview_img.save(preview_path)
+                # Save preview.
+                if kk == 0 and ii < 10:
+                    before = ei.repeat(img_stack[0], "h w -> h w 3")
+                    after = ei.repeat(img_stack[1], "h w -> h w 3")
 
-            img_stacks.append(img_stack)
+                    # [-1, 1]
+                    diff = img_stack[1] - img_stack[0]
+                    diff = (diff + 1) / 2
+                    diff_img = cmap(diff)[:, :, :3]
+
+                    UP_FACTOR = 16
+                    push_w, push_l = 5, 2
+                    pushrect = (UP_FACTOR * push_w, UP_FACTOR * push_l, angle)
+                    before, after, diff_img = [
+                        draw_pushbox(upscale_img(img, factor=UP_FACTOR), pushrect, UP_FACTOR) for img in [before, after, diff_img]
+                    ]
+
+                    preview_path = dset_path / "preview_{:05}_rot{:.2f}.png".format(ii, angle_frac)
+                    preview_img = ei.rearrange([before, after, diff_img], "b h w dim -> h (b w) dim", b=3)
+
+                    save_img(preview_img, preview_path, upscale=True)
+
+            # (n_angles, 2, W, H)
+            angle_img_stacks = np.stack(angle_img_stacks, axis=0)
+            img_stacks.append(angle_img_stacks)
 
         if len(img_stacks) == 0:
             log.warning("Woops, not enough images")
             continue
 
-        # (n_imgs, 2, W, H)
+        # (n_imgs, n_angles, 2, W, H)
         img_stacks = np.stack(img_stacks, axis=0)
         all_img_stacks.append(img_stacks)
-    # (n_samples, 2, W, H)
+    # (n_samples, n_angles, 2, W, H)
     imgs = np.concatenate(all_img_stacks, axis=0)
     imgs = imgs.astype(np.float32)
 

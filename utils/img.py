@@ -31,6 +31,29 @@ def rotate_mat(image: np.ndarray, angle_rad: float) -> np.ndarray:
     return rot_mat
 
 
+def upscale_img(img: np.ndarray, factor: int) -> np.ndarray:
+    return cv2.resize(img, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_NEAREST)
+
+
+def draw_pushbox(img: np.ndarray, pushrect: tuple[float, float, float], pix_size: float) -> np.ndarray:
+    cen_c, cen_r = img.shape[0] / 2, img.shape[1] / 2
+
+    center = (cen_r + pushrect[1] / 2, cen_c - pix_size / 2)
+    size = (pushrect[1], pushrect[0])
+    box = (center, size, -np.rad2deg(pushrect[2]))
+    push_rect = cv2.boxPoints(box)
+    push_rect = np.round(push_rect).astype(int)
+
+    # log.info("draw pushbox dtype={}".format(img.dtype))
+    if img.dtype == np.float32 or img.dtype == np.float64:
+        color = (0.01, 0.01, 1.0)
+    else:
+        color = (12, 12, 255)
+
+    img = cv2.polylines(img, [push_rect], True, color, 1)
+    return img
+
+
 def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool = False):
     if img.dtype != np.uint8:
         assert img.dtype == np.float32 or img.dtype == np.float64
@@ -54,8 +77,9 @@ def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool = False):
 
     if upscale:
         # If the image is tiny, then upscale.
-        if img.shape[0] < 256:
-            factor = np.round(256 / img.shape[0])
-            img = cv2.resize(img, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_NEAREST)
+        UPSCALE_SIZE = 512
+        if img.shape[0] < UPSCALE_SIZE:
+            factor = np.round(UPSCALE_SIZE / img.shape[0])
+            img = upscale_img(img, factor)
 
     cv2.imwrite(str(path), img)
