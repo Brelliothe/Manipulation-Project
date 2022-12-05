@@ -163,3 +163,4 @@ val_dset
 val_imgs
 sol.npy
 data_old
+test_log

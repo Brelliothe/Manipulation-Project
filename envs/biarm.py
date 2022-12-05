@@ -256,7 +256,7 @@ class BiArmSim(pyglet.window.Window):
         self.pushers = []
 
     def apply_control(
-        self, u: Float[np.ndarray, "8"], render_at_length: float | None = None
+        self, u: Float[np.ndarray, "8"], render_at_length: float | None = None, render_every: int | None = None
     ) -> tuple[list[Image], dict]:
         """
         Apply a control action, run the simulation forward then return.
@@ -331,6 +331,9 @@ class BiArmSim(pyglet.window.Window):
                     pusher_states.append(pusher_state)
 
                     save_at_length += render_at_length
+            elif render_every is not None and steps % render_every == 0:
+                # Just for visualization.
+                self.render_to_screen()
 
             vels = np.stack([np.linalg.norm(pusher.body.velocity) for pusher in self.pushers], axis=0)
             v_err_hist[steps] = vels - v_noms
@@ -479,6 +482,11 @@ class BiArmSim(pyglet.window.Window):
         pil_im = Image.frombytes("RGB", (self.width, self.height), img_data)
         # return pil_im.resize((32, 32))
         return pil_im
+
+    def get_image_grayscale_np(self) -> np.ndarray:
+        pil_im = self.get_image().convert("L")
+        cv_image = np.array(pil_im).copy()
+        return cv_image
 
     def get_image_np(self) -> np.ndarray:
         pil_im = self.get_image()

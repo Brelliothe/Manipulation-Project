@@ -19,7 +19,7 @@ def get_npz_paths(dir_name: str) -> list[pathlib.Path]:
     return sorted(npzs)
 
 
-def center_img(img: np.ndarray, state: np.array) -> np.ndarray:
+def center_img(img: np.ndarray, state: np.array, interp_mode=cv2.INTER_NEAREST) -> np.ndarray:
     width, height = img.shape[0], img.shape[1]
 
     assert state.shape == (3,)
@@ -33,15 +33,13 @@ def center_img(img: np.ndarray, state: np.array) -> np.ndarray:
     shift_x = px - center_x
     shift_y = py - center_y
 
-    log.info("np  {} {}".format(shift_x, shift_y))
-
     M1 = np.array([[1.0, 0.0, -shift_x], [0.0, 1.0, -shift_y]])
 
     # Rotate image so that we are always pushing to the right.
     M2 = rotate_mat(img, -state[2])
 
     M = compose_affine(M1, M2)
-    img = cv2.warpAffine(img, M, img.shape[1::-1], cv2.INTER_LINEAR)
+    img = cv2.warpAffine(img, M, img.shape[1::-1], flags=interp_mode)
     # img = shift_img(img, -shift_x, -shift_y)
     #
     # rotate_rad = state[2]
@@ -50,7 +48,7 @@ def center_img(img: np.ndarray, state: np.array) -> np.ndarray:
     return img
 
 
-def uncenter_img(img: np.ndarray, state: np.ndarray) -> np.ndarray:
+def uncenter_img(img: np.ndarray, state: np.ndarray, interp_mode=cv2.INTER_NEAREST) -> np.ndarray:
     width, height = img.shape[0], img.shape[1]
 
     assert state.shape == (3,)
@@ -69,7 +67,7 @@ def uncenter_img(img: np.ndarray, state: np.ndarray) -> np.ndarray:
 
     M2 = np.array([[1.0, 0.0, shift_x], [0.0, 1.0, shift_y]])
     M = compose_affine(M1, M2)
-    img = cv2.warpAffine(img, M, img.shape[1::-1], cv2.INTER_LINEAR)
+    img = cv2.warpAffine(img, M, img.shape[1::-1], flags=interp_mode)
 
     return img
 
@@ -96,8 +94,6 @@ def center_img_2(img: Image, state: np.array) -> Image:
     e = 1
     f = shift_y
 
-    log.info("pil {} {}".format(shift_x, shift_y))
-
     img = img.transform(img.size, AFFINE, (a, b, c, d, e, f))
 
     # Rotate image so that we are always pushing to the right.
@@ -108,7 +104,7 @@ def center_img_2(img: Image, state: np.array) -> Image:
 
 
 def shift_img(img: np.ndarray, tx: float, ty: float, shift_interp=cv2.INTER_LINEAR) -> np.ndarray:
-    log.info("Shifting tx={}, ty={}".format(tx, ty))
+    # log.info("Shifting tx={}, ty={}".format(tx, ty))
     M = np.array([[1.0, 0.0, tx], [0.0, 1.0, ty]])
     shifted = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]), flags=shift_interp)
     return shifted
@@ -131,11 +127,15 @@ def blur_img(img: np.ndarray, sigma: float):
 
 
 def process_img(img: np.ndarray, state: np.ndarray, w: int, h: int) -> np.ndarray:
-    img = np.asarray(center_img(fromarray(img), state))
+    # img = np.asarray(center_img(fromarray(img), state))
+    img = center_img(img, state)
     # img = blur_img(img, 1.0)
     img = downsample_img(img, w, h)
     # img = blur_img(img, 0.1)
     return img
+
+
+PUSH_FRAMES = 1
 
 
 def main():
@@ -158,6 +158,10 @@ def main():
         npz = np.load(npz_path)
         images, states = npz["images"], npz["states"]
         assert len(images) == len(states)
+
+        images = images[::PUSH_FRAMES]
+        if len(images) < 2:
+            continue
 
         if ii == 0:
             log.info("images.shape: {}".format(images.shape))

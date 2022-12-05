@@ -9,7 +9,14 @@ from loguru import logger as log
 from PIL.Image import fromarray
 
 from envs.biarm import to_screen_pos
-from make_dset import center_img, center_img_2, downsample_img, shift_img, uncenter_img, downsample_state
+from make_dset import (
+    center_img,
+    center_img_2,
+    downsample_img,
+    downsample_state,
+    shift_img,
+    uncenter_img,
+)
 from utils.img import rotate_img, save_img
 
 
@@ -63,34 +70,30 @@ def predict_onearm(A: np.ndarray, im0: np.ndarray, u: np.ndarray, A_length: floa
     start_state = np.array([x0[0], x0[1], theta])
 
     # 1: Shift and rotate image.
-    # centered_img = np.asarray(center_img_2(fromarray(im0), start_state))
-    # save_img(centered_img, val_path / "dbg_0_pil.png", upscale=True)
-    save_img(im0, val_path / "dbg_0.png", upscale=True)
-    centered_img = center_img(im0, start_state)
-    save_img(centered_img, val_path / "dbg_1.png", upscale=True)
-
-    wtf = uncenter_img(centered_img, start_state)
-    save_img(wtf, val_path / "dbg_2.png", upscale=True)
+    centered_img = center_img(im0, start_state, cv2.INTER_NEAREST)
 
     # 2: Downsample image.
     downsampled_orig = downsample_img(im0, down_w, down_h)
-    save_img(downsampled_orig, val_path / "dbg_3.png", upscale=True)
-    # save_img(im0, val_path / "dbg_0_wtf_img.png", upscale=True)
-    # save_img(downsampled_orig, val_path / "dbg_0_dwnsample_img.png", upscale=True)
-
     centered_img = downsample_img(centered_img, down_w, down_h)
-    save_img(centered_img, val_path / "dbg_4.png", upscale=True)
 
     factor = down_w / im0.shape[0]
     assert factor < 1
     downsampled_start_state = downsample_state(start_state, factor)
-    wtf = uncenter_img(centered_img, downsampled_start_state)
-    save_img(wtf, val_path / "dbg_5.png", upscale=True)
-    exit(0)
+    #
+    # wtf1 = center_img(downsampled_orig, downsampled_start_state)
+    # wtf2 = uncenter_img(wtf1, downsampled_start_state)
+    # save_img(downsampled_orig, val_path / "0_wtf1.png", upscale=True)
+    # save_img(wtf2, val_path / "0_wtf2.png", upscale=True)
+    #
+    # wtf1 = center_img(downsampled_orig, downsampled_start_state, cv2.INTER_NEAREST)
+    # wtf2 = uncenter_img(wtf1, downsampled_start_state, cv2.INTER_NEAREST)
+    # save_img(downsampled_orig, val_path / "1_wtf1.png", upscale=True)
+    # save_img(wtf2, val_path / "1_wtf2.png", upscale=True)
+    # exit(0)
 
-    # 3: Rotate the mask.
+    # 3: Shift and rotate mask
     mask = np.ones(centered_img.shape, dtype=float)
-    mask = rotate_img(mask, -theta, cv2.INTER_NEAREST)
+    mask = center_img(mask, downsampled_start_state, cv2.INTER_NEAREST)
 
     # How many times to apply A.
     n_apply = np.round(push_length * factor / A_length).astype(int)
@@ -100,37 +103,20 @@ def predict_onearm(A: np.ndarray, im0: np.ndarray, u: np.ndarray, A_length: floa
     for kk in range(n_apply):
         if kk > 0:
             # Shift by A_length.
-            pred_img = shift_img(pred_img, -A_length, 0.0)
+            pred_img = shift_img(pred_img, -A_length, 0.0, cv2.INTER_NEAREST)
             mask = shift_img(mask, -A_length, 0.0, cv2.INTER_NEAREST)
 
         pred_img = apply_linear(A, pred_img)
-        save_img(pred_img, val_path / "dbg_1_pred_img_kk={}.png".format(kk), upscale=True)
 
     # Unshift image.
-    pred_img = shift_img(pred_img, A_length * (n_apply - 1), 0.0)
-    mask = shift_img(mask, A_length * (n_apply - 1), 0.0)
-    save_img(pred_img, val_path / "dbg_2_unshift.png".format(pred_img), upscale=True)
-
-    # Unrotate image.
-    pred_img = rotate_img(pred_img, theta, cv2.INTER_LINEAR)
-    mask = rotate_img(mask, theta, cv2.INTER_NEAREST)
-    save_img(pred_img, val_path / "dbg_3_unrot.png", upscale=True)
+    pred_img = shift_img(pred_img, A_length * (n_apply - 1), 0.0, cv2.INTER_NEAREST)
+    mask = shift_img(mask, A_length * (n_apply - 1), 0.0, cv2.INTER_NEAREST)
 
     # Unshift image.
-    px = x0[0] * factor
-    py = x0[1] * factor
-    # Flip y because coords are different.
-    py = down_h - py
-    center_x, center_y = down_w / 2, down_h / 2
-    tx, ty = -(px - center_x), -(py - center_y)
+    pred_img = uncenter_img(pred_img, downsampled_start_state, cv2.INTER_NEAREST)
+    mask = uncenter_img(mask, downsampled_start_state, cv2.INTER_NEAREST)
 
-    log.info("tx, ty: {}, {}".format(tx, ty))
-
-    pred_img = shift_img(pred_img, tx, ty, cv2.INTER_LINEAR)
-    mask = shift_img(mask, tx, ty, cv2.INTER_NEAREST)
-
-    save_img(wtf, val_path / "dbg_0_fuck_img.png", upscale=True)
-
-    save_img(pred_img, val_path / "dbg_4_unshift.png", upscale=True)
+    # Finally, use mask to restore the unchanged regions.
+    pred_img = mask * pred_img + (1.0 - mask) * downsampled_orig
 
     return pred_img, mask

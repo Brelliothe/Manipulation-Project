@@ -8,7 +8,7 @@ import numpy as np
 from loguru import logger as log
 
 from envs.biarm import from_screen_pos
-from make_dset import get_npz_paths, process_img, shift_img
+from make_dset import downsample_img, get_npz_paths, process_img, shift_img
 from models.linear_dyn import predict_onearm
 from utils.img import save_img
 
@@ -47,6 +47,8 @@ def main():
     A[is_neg] = -1.0
 
     WIDTH, HEIGHT = 512, 512
+    RENDER_AT_LENGTH = 32
+    A_length = down_w / WIDTH * RENDER_AT_LENGTH
 
     for ii, npz_path in enumerate(npz_paths):
         if ii == N_VIZ:
@@ -64,18 +66,20 @@ def main():
             goal_state = from_screen_pos(states[kk, 0, :2], WIDTH, HEIGHT)
             u = np.stack([start_state, goal_state], axis=0)[None, :, :]
 
-            pred_img, mask = predict_onearm(A, images[0], u, 2.0, down_w, down_h)
+            pred_img, mask = predict_onearm(A, images[0], u, A_length, down_w, down_h)
+
+            down_orig = downsample_img(images[0], down_w, down_h)
 
             path = val_path / "{:03}_{}_0_orig.png".format(ii, kk)
             save_img(images[0], path, upscale=True)
             path = val_path / "{:03}_{}_1_true.png".format(ii, kk)
             save_img(images[kk], path, upscale=True)
-            path = val_path / "{:03}_{}_2_pred.png".format(ii, kk)
+            path = val_path / "{:03}_{}_2_downorig.png".format(ii, kk)
+            save_img(down_orig, path, upscale=True)
+            path = val_path / "{:03}_{}_3_pred.png".format(ii, kk)
             save_img(pred_img, path, upscale=True)
-            path = val_path / "{:03}_{}_3_mask.png".format(ii, kk)
+            path = val_path / "{:03}_{}_4_mask.png".format(ii, kk)
             save_img(mask, path, upscale=True)
-
-            return
 
         return
 

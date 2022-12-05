@@ -32,7 +32,8 @@ def main():
     # lstsq_A, resid, rank, s = torch.linalg.lstsq(im0_vec, delta_vec, 1e-8)
     # log.info("Residuals mean={}, max={}".format(resid.mean(), resid.max()))
 
-    cfg = LinearDynTrainer.Cfg(10_000, 4e-3, 2e-2)
+    # cfg = LinearDynTrainer.Cfg(10_000, 4e-3, 2e-2)
+    cfg = LinearDynTrainer.Cfg(10_000, 4e-3, 0.5)
     trainer = LinearDynTrainer(im0, im1, cfg=cfg, device=device)
     A = trainer.fit(verbose=True)
 
