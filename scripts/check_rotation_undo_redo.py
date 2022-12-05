@@ -26,15 +26,22 @@ def main():
     images, states = npz["images"], npz["states"]
 
     im0 = images[0]
-    im0 = downsample_img(im0, DOWN_W, DOWN_H)
+    down_im0 = downsample_img(im0, DOWN_W, DOWN_H)
 
     interps = [
         (cv2.INTER_NEAREST, "nearest"),
         (cv2.INTER_LINEAR, "linear"),
         (cv2.INTER_CUBIC, "cubic"),
+        (cv2.INTER_LANCZOS4, "lancz"),
+        (cv2.INTER_AREA, "area"),
         # (cv2.INTER_NEAREST, "nearest inv"),
         # (cv2.INTER_LINEAR, "linear inv"),
         # (cv2.INTER_CUBIC, "cubic inv"),
+        (cv2.INTER_NEAREST, "nearest pre"),
+        (cv2.INTER_LINEAR, "linear pre"),
+        (cv2.INTER_CUBIC, "cubic pre"),
+        (cv2.INTER_LANCZOS4, "lancz pre"),
+        (cv2.INTER_AREA, "area pre"),
     ]
 
     angle_fracs = np.linspace(0, 1.0, N_ANGLES)
@@ -46,13 +53,20 @@ def main():
         fig_imgs = []
         for interp, interp_label in interps:
             if "inv" in interp_label:
-                rot_img = rotate_img(im0, angle, interp)
-                im1 = rotate_img(rot_img, angle, interp | cv2.WARP_INVERSE_MAP)
-            else:
+                rot_img = rotate_img(down_im0, angle, interp)
+                down_im1 = rotate_img(rot_img, angle, interp | cv2.WARP_INVERSE_MAP)
+            elif "pre" in interp_label:
                 rot_img = rotate_img(im0, angle, interp)
                 im1 = rotate_img(rot_img, -angle, interp)
 
-            err = np.linalg.norm(im1 - im0)
+                rot_img = downsample_img(rot_img, DOWN_W, DOWN_H)
+                down_im1 = downsample_img(im1, DOWN_W, DOWN_H)
+            else:
+                rot_img = rotate_img(down_im0, angle, interp)
+                down_im1 = rotate_img(rot_img, -angle, interp)
+
+            err = np.linalg.norm(down_im1 - down_im0)
+
             interp_errs.append(err)
 
             imshow_style = dict(vmin=0.0, vmax=1.0)
@@ -60,9 +74,9 @@ def main():
             # Visualize.
             fig, axes = plt.subplots(3, figsize=(2, 6.5), dpi=250, constrained_layout=True)
             [ax.set_axis_off() for ax in axes]
-            axes[0].imshow(im0, interpolation="nearest", **imshow_style)
+            axes[0].imshow(down_im0, interpolation="nearest", **imshow_style)
             axes[1].imshow(rot_img, interpolation="nearest", **imshow_style)
-            axes[2].imshow(im1, interpolation="nearest", **imshow_style)
+            axes[2].imshow(down_im1, interpolation="nearest", **imshow_style)
             axes[0].set_title(r"${:.2f} * \frac{{1}}{{2}} \pi$ - {}".format(angle_frac, interp_label))
 
             # Save fig to image.
