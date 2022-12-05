@@ -27,7 +27,6 @@ def main():
 
     device = torch.device("cuda:0")
 
-
     As = []
     for angle_idx, angle_frac in enumerate(tqdm.tqdm(angle_fracs)):
         # (n_samples, n_angles, 2, W, H) -> (n_samples, W, H)
