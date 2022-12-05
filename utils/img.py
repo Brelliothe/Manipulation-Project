@@ -1,6 +1,7 @@
 import pathlib
 
 import cv2
+import einops as ei
 import numpy as np
 from loguru import logger as log
 
@@ -33,6 +34,18 @@ def rotate_mat(image: np.ndarray, angle_rad: float) -> np.ndarray:
 
 def upscale_img(img: np.ndarray, factor: int) -> np.ndarray:
     return cv2.resize(img, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_NEAREST)
+
+
+def cast_img_to_rgb(ims: list[np.ndarray]) -> list[np.ndarray]:
+    out = []
+    for im in ims:
+        assert im.dtype == np.float32 or im.dtype == np.float64
+        if im.ndim == 2:
+            im = ei.repeat(im, "H W -> H W 3")
+
+        out.append(im)
+
+    return out
 
 
 def draw_pushbox(img: np.ndarray, pushrect: tuple[float, float, float], pix_size: float) -> np.ndarray:
@@ -86,8 +99,9 @@ def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool = False):
     if upscale:
         # If the image is tiny, then upscale.
         UPSCALE_SIZE = 512
-        if img.shape[0] < UPSCALE_SIZE:
-            factor = np.round(UPSCALE_SIZE / img.shape[0])
+        min_dim = min(img.shape[0], img.shape[1])
+        if min_dim < UPSCALE_SIZE:
+            factor = np.round(UPSCALE_SIZE / min_dim)
             img = upscale_img(img, factor)
 
     cv2.imwrite(str(path), img)

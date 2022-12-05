@@ -36,14 +36,16 @@ def main():
     As, angle_fracs, push_frames = npz["As"], npz["angle_fracs"], npz["push_frames"]
     assert As.shape == (n_angles, down_w * down_h, down_w * down_h)
 
+    log.info("push_frames: {}".format(push_frames))
+
     train_angles = angle_fracs * np.pi / 2
 
-    # Plot histogram of values of A.
-    ax: plt.Axes
-    fig, ax = plt.subplots(constrained_layout=True)
-    bins = np.linspace(-1.0, 1.0, 51)
-    ax.hist(As.flatten(), bins=bins, log=True)
-    fig.savefig(val_path / "A_hist.pdf")
+    # # Plot histogram of values of A.
+    # ax: plt.Axes
+    # fig, ax = plt.subplots(constrained_layout=True)
+    # bins = np.linspace(-1.0, 1.0, 51)
+    # ax.hist(As.flatten(), bins=bins, log=True)
+    # fig.savefig(val_path / "A_hist.pdf")
 
     WIDTH, HEIGHT = 512, 512
     RENDER_AT_LENGTH = 32
@@ -57,6 +59,9 @@ def main():
         images, states = raw_npz["images"], raw_npz["states"]
         assert len(images) == len(states)
 
+        images = images[::push_frames]
+        states = states[::push_frames]
+
         if len(states) < 4:
             continue
 
@@ -67,20 +72,28 @@ def main():
 
             # TODO: If we train a NN, then predict.
             im0 = to_float_img(images[0])
+            im1 = to_float_img(images[kk])
 
             pred_img, mask = predict_onearm(As, train_angles, im0, u, A_length, down_w, down_h)
             down_orig = downsample_img(im0, down_w, down_h)
+            down_true = downsample_img(im1, down_w, down_h)
 
             path = val_path / "{:03}_{}_0_orig.png".format(ii, kk)
-            save_img(images[0], path, upscale=True)
-            path = val_path / "{:03}_{}_1_true.png".format(ii, kk)
-            save_img(images[kk], path, upscale=True)
-            path = val_path / "{:03}_{}_2_downorig.png".format(ii, kk)
+            save_img(im0, path, upscale=True)
+
+            path = val_path / "{:03}_{}_1_downorig.png".format(ii, kk)
             save_img(down_orig, path, upscale=True)
-            path = val_path / "{:03}_{}_3_pred.png".format(ii, kk)
+
+            path = val_path / "{:03}_{}_2_pred.png".format(ii, kk)
             save_img(pred_img, path, upscale=True)
-            path = val_path / "{:03}_{}_4_mask.png".format(ii, kk)
-            save_img(mask, path, upscale=True)
+
+            path = val_path / "{:03}_{}_3_true.png".format(ii, kk)
+            save_img(im1, path, upscale=True)
+
+            path = val_path / "{:03}_{}_4_downtrue.png".format(ii, kk)
+            save_img(down_true, path, upscale=True)
+            # path = val_path / "{:03}_{}_5_mask.png".format(ii, kk)
+            # save_img(mask, path, upscale=True)
 
         return
 
