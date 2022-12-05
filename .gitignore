@@ -165,3 +165,4 @@ sol.npy
 data_old
 test_log
 *.tar.lrz
+scripts/plots
