@@ -36,13 +36,58 @@ class OneArmLinearModel(torch.nn.Module):
         return self.from_vector(new_vec)
 
 
-def apply_linear(A: np.ndarray, im0: np.ndarray):
+def apply_linear(A: np.ndarray, im0: np.ndarray, is_delta: bool = True):
+    """Apply linear dynamics to image.
+    :param A:
+    :param im0:
+    :return:
+    """
     im_vec = im0.flatten()
     assert im_vec.shape[0] == A.shape[0] == A.shape[1]
     delta_vec = A @ im_vec
     delta = delta_vec.reshape(im0.shape)
 
-    return im0 + delta
+    if is_delta:
+        return im0 + delta
+    else:
+        return delta
+
+
+def lin_shift_operator(shift: np.ndarray, w: int, h: int) -> np.ndarray:
+    ws, hs = np.arange(w), np.arange(h)
+    # (w, h, 2)
+    in_pos = np.stack(np.meshgrid(ws, hs, indexing="ij"), axis=-1)
+
+    px, py = shift
+    py = h - py
+    center_x, center_y = w // 2, h // 2
+    shift_x = center_x - px
+    shift_y = center_y - py
+    shift = np.array([shift_y, shift_x])
+
+    assert shift.shape == (2,)
+    out_pos = in_pos + shift
+    # (w, h, 4)
+    total_pos = np.concatenate([out_pos, in_pos], axis=2)
+    total_pos = total_pos.reshape((w * h, 4))
+
+    # Filter out entries that are out of bounds.
+    in_bounds = (0 <= total_pos[:, 0]) & (total_pos[:, 0] < w) & (0 <= total_pos[:, 1]) & (total_pos[:, 1] < h)
+    total_pos = total_pos[in_bounds]
+
+    p1, p2, p3, p4 = np.split(total_pos, 4, axis=1)
+    T = np.zeros((w, h, w, h))
+    T[p1, p2, p3, p4] = 1
+    T = T.reshape((w * h, w * h))
+    return T
+
+
+def shift_linear(A: np.ndarray, shift: np.ndarray, w: int, h: int) -> np.ndarray:
+    """Shift the linear operator so that it acts the same as T^T A T."""
+    T = lin_shift_operator(shift, w, h)
+
+    shifted_A = T.T @ (A + np.eye(w * h)) @ T
+    return shifted_A
 
 
 def predict_onearm(
@@ -77,7 +122,6 @@ def predict_onearm(
     #         theta, n_90s, remainder, theta_idx, train_angles
     #     )
     # )
-
 
     # How many times to apply A.
     factor = down_w / im0.shape[0]
