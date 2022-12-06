@@ -1,4 +1,5 @@
 import pathlib
+from typing import Iterable
 
 import cv2
 import einops as ei
@@ -36,10 +37,9 @@ def upscale_img(img: np.ndarray, factor: int) -> np.ndarray:
     return cv2.resize(img, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_NEAREST)
 
 
-def cast_img_to_rgb(ims: list[np.ndarray]) -> list[np.ndarray]:
+def cast_img_to_rgb(ims: Iterable[np.ndarray]) -> list[np.ndarray]:
     out = []
     for im in ims:
-        assert im.dtype == np.float32 or im.dtype == np.float64
         if im.ndim == 2:
             im = ei.repeat(im, "H W -> H W 3")
 
@@ -75,9 +75,26 @@ def draw_pushbox(img: np.ndarray, pushrect: tuple[float, float, float], pix_size
     return img
 
 
+def is_float_img(img: np.ndarray) -> bool:
+    return img.dtype == np.float32 or img.dtype == np.float64
+
+
+def is_int_img(img: np.ndarray) -> bool:
+    return img.dtype == np.int32 or img.dtype == np.uint8
+
+
+def draw_circle(img: np.ndarray, radius: int) -> np.ndarray:
+    assert is_int_img(img)
+
+    center = (img.shape[0] // 2, img.shape[1] // 2)
+    color = (0, 255, 0)
+    img = cv2.circle(img, center, radius, color, thickness=1)
+    return img
+
+
 def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool = False):
     if img.dtype != np.uint8:
-        assert img.dtype == np.float32 or img.dtype == np.float64
+        assert is_float_img(img)
 
         img_min, img_max = img.min(), img.max()
         eps = 1e-5

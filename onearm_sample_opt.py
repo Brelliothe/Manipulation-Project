@@ -3,25 +3,27 @@ import pathlib
 import einops as ei
 import ipdb
 import numpy as np
+import skvideo.io
 import torch
 import torch.distributions as td
 from loguru import logger as log
 from torch.nn.functional import relu
 
 from envs.biarm import BiArmSim
-from make_dset import downsample_img, to_float_img
+from make_dset import downsample_img, to_float_img, to_uint8_img
 from models.linear_dyn import predict_onearm
-from utils.img import save_img
+from utils.img import draw_circle, save_img, cast_img_to_rgb
 
-N_ACTIONS = 100
-PUSH_FRAMES = 1
+# N_ACTIONS = 100
+N_ACTIONS = 50
+TARGET_RADIUS = 5.0
 
 
-def sample_controls(batch: int, angle_fracs: torch.Tensor) -> torch.Tensor:
+def sample_controls(batch: int, angle_fracs: torch.Tensor, push_frames: int) -> torch.Tensor:
     (n_angles,) = angle_fracs.shape
     LIMS = 0.4
     WIDTH = 512
-    PUSH_DIST = 32 * PUSH_FRAMES / WIDTH
+    push_dist = 32 * push_frames / WIDTH
 
     # Coordinate is (-0.5, 0.5)^2.
     pos_dist = td.Uniform(-LIMS, LIMS)
@@ -33,14 +35,14 @@ def sample_controls(batch: int, angle_fracs: torch.Tensor) -> torch.Tensor:
     angles = angle_fracs[angle_frac_idx] + n_90s * np.pi / 2
 
     # (batch, 2)
-    delta = PUSH_DIST * torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
+    delta = push_dist * torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
     goal = init + delta
 
     us = ei.rearrange([init, goal], "two batch dim -> batch 1 two dim")
     return us
 
 
-def cost_fn(im: torch.Tensor) -> torch.Tensor:
+def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
     # im: (..., w, h)
     # Cost is sum of mass outside the circle.
 
@@ -58,7 +60,7 @@ def cost_fn(im: torch.Tensor) -> torch.Tensor:
     dists = torch.sqrt(xs**2 + ys**2)
 
     # (w, h)
-    cost_mat = relu(dists - 5.0) ** 4
+    cost_mat = relu(dists - target_radius) ** 4
 
     costs = ei.reduce(im * cost_mat, "... w h -> ...", reduction="sum")
 
@@ -69,7 +71,7 @@ def cost_fn(im: torch.Tensor) -> torch.Tensor:
 def main():
     sim = BiArmSim(n_arms=1, do_render=True)
 
-    batch = 64
+    batch = 128
 
     down_w, down_h = 32, 32
     sol_path = pathlib.Path("sol.npz")
@@ -82,12 +84,13 @@ def main():
 
     assert As.shape == (n_angles, down_w * down_h, down_w * down_h)
 
-    A_length = 32 * 32 * PUSH_FRAMES / 512
+    A_length = 32 * 32 * push_frames / 512
     log.info("A_length: {}".format(A_length))
 
     test_path = pathlib.Path("test_log")
     test_path.mkdir(exist_ok=True, parents=True)
 
+    start_ims = []
     im0, downsampled_img = None, None
     for ii in range(N_ACTIONS):
         # 1: Get the current state.
@@ -98,6 +101,7 @@ def main():
 
             # Convert to grayscale.
             im0 = to_float_img(im0)
+            start_ims.append(im0)
             downsampled_img = downsample_img(im0, down_w, down_h)
             downsampled_img = torch.Tensor(downsampled_img)
 
@@ -105,10 +109,10 @@ def main():
         save_img(downsampled_img.cpu().numpy(), test_path / "{:02}_0_start.png".format(ii), upscale=True)
 
         # 2: Get initial cost.
-        initial_cost = cost_fn(downsampled_img)
+        initial_cost = cost_fn(downsampled_img, TARGET_RADIUS)
 
         # 3: Sample controls.
-        us = sample_controls(batch, angle_fracs)
+        us = sample_controls(batch, angle_fracs, push_frames)
         us = us.cpu().numpy()
 
         # 4: Forward simulate using learned dynamics model.
@@ -117,7 +121,7 @@ def main():
             im1, mask = predict_onearm(As, train_angles, im0, u, A_length, down_w, down_h)
             im1s.append(im1)
         torch_im1s = torch.Tensor(np.stack(im1s, axis=0))
-        new_costs = cost_fn(torch_im1s)
+        new_costs = cost_fn(torch_im1s, TARGET_RADIUS)
 
         # 5: Get the argmin cost.
         argmin = torch.argmin(new_costs)
@@ -140,10 +144,25 @@ def main():
 
         # Convert to grayscale.
         im0 = to_float_img(im0)
+        start_ims.append(im0)
         downsampled_img = downsample_img(im0, down_w, down_h)
         downsampled_img = torch.Tensor(downsampled_img)
-        final_cost = cost_fn(downsampled_img)
+        final_cost = cost_fn(downsampled_img, TARGET_RADIUS)
         log.info("Expected {:.1f} -> {:.1f}, got {:.1f}.".format(initial_cost, min_cost, final_cost))
+
+    start_ims = np.stack(start_ims, axis=0)
+    # Convert to uint8.
+    start_ims = np.clip(start_ims, 0.0, 1.0)
+    start_ims = cast_img_to_rgb(to_uint8_img(start_ims))
+
+    # For each image, draw a circle showing the target radius.
+    downsample_factor = 32 / 512
+    radius_in_orig = int(np.round(TARGET_RADIUS / downsample_factor))
+    for ii, img in enumerate(start_ims):
+        draw_circle(img, radius_in_orig)
+
+    # Write start_ims to a video.
+    skvideo.io.vwrite(test_path / "video.mp4", start_ims)
 
 
 if __name__ == "__main__":

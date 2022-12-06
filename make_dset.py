@@ -131,6 +131,13 @@ def to_float_img(im: np.ndarray) -> np.ndarray:
     return im
 
 
+def to_uint8_img(im: np.ndarray) -> np.ndarray:
+    assert im.dtype == np.float32 or im.dtype == np.float64
+    assert im.min() >= 0.0 and im.max() <= 1.0
+    im = np.round(im * 255.0).astype(np.uint8)
+    return im
+
+
 def blur_img(img: np.ndarray, sigma: float):
     return cv2.GaussianBlur(img, ksize=(0, 0), sigmaX=sigma)
 
@@ -147,6 +154,7 @@ def process_img(
 
 
 PUSH_FRAMES = 2
+# PUSH_FRAMES = 4
 N_ANGLES = 4
 
 
