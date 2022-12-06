@@ -72,11 +72,12 @@ def predict_onearm(
     angle = train_angles[theta_idx]
     A = As[theta_idx]
 
-    log.info(
-        "theta: {:.2f} = {} 90s + {:.2f}. theta_idx = {}. train_angles: {}".format(
-            theta, n_90s, remainder, theta_idx, train_angles
-        )
-    )
+    # log.info(
+    #     "theta: {:.2f} = {} 90s + {:.2f}. theta_idx = {}. train_angles: {}".format(
+    #         theta, n_90s, remainder, theta_idx, train_angles
+    #     )
+    # )
+
 
     # How many times to apply A.
     factor = down_w / im0.shape[0]
@@ -133,7 +134,7 @@ def predict_onearm(
     shift_x = np.cos(angle) * A_length
     shift_y = np.sin(angle) * A_length
     # shift_y = 0
-    log.info("shift_x: {}, shift_y: {}".format(shift_x, shift_y))
+    # log.info("shift_x: {}, shift_y: {}".format(shift_x, shift_y))
 
     # Apply A n_apply times.
     pred_img = down_im0

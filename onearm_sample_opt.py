@@ -13,7 +13,7 @@ from make_dset import downsample_img, to_float_img
 from models.linear_dyn import predict_onearm
 from utils.img import save_img
 
-N_ACTIONS = 4
+N_ACTIONS = 100
 PUSH_FRAMES = 1
 
 
@@ -44,6 +44,9 @@ def cost_fn(im: torch.Tensor) -> torch.Tensor:
     # im: (..., w, h)
     # Cost is sum of mass outside the circle.
 
+    # Make sure the mass is non-negative.
+    im = torch.clip(im, min=0.0, max=2.0)
+
     down_w, down_h = 32, 32
 
     # We want all the mass to be located at the center.
@@ -55,9 +58,10 @@ def cost_fn(im: torch.Tensor) -> torch.Tensor:
     dists = torch.sqrt(xs**2 + ys**2)
 
     # (w, h)
-    cost_mat = relu(dists - 3.0) ** 2
+    cost_mat = relu(dists - 5.0) ** 4
 
     costs = ei.reduce(im * cost_mat, "... w h -> ...", reduction="sum")
+
     # ipdb.set_trace()
     return costs
 
@@ -79,6 +83,7 @@ def main():
     assert As.shape == (n_angles, down_w * down_h, down_w * down_h)
 
     A_length = 32 * 32 * PUSH_FRAMES / 512
+    log.info("A_length: {}".format(A_length))
 
     test_path = pathlib.Path("test_log")
     test_path.mkdir(exist_ok=True, parents=True)
@@ -128,7 +133,7 @@ def main():
         # Apply the best control.
         best_u = us[argmin]
         log.info("best u: {}".format(best_u))
-        sim.apply_control(best_u, render_every=10)
+        sim.apply_control(best_u, render_every=50)
         sim.clear_screen()
         sim.debug_draw()
         im0 = sim.get_image_grayscale_np()

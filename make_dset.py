@@ -190,8 +190,8 @@ def main():
                 state = states[kk, 0].copy()
                 state[2] -= angle
 
-                rot_prev = process_img(prev_img, state, DOWN_W, DOWN_H, shift_interp=cv2.INTER_CUBIC)
-                rot_new = process_img(new_img, state, DOWN_W, DOWN_H, shift_interp=cv2.INTER_CUBIC)
+                rot_prev = process_img(to_float_img(prev_img), state, DOWN_W, DOWN_H, shift_interp=cv2.INTER_CUBIC)
+                rot_new = process_img(to_float_img(new_img), state, DOWN_W, DOWN_H, shift_interp=cv2.INTER_CUBIC)
 
                 # (2, W, H)
                 img_stack = np.stack([rot_prev, rot_new], axis=0)
