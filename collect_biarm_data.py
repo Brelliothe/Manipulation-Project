@@ -20,10 +20,12 @@ from utils.img import cast_img_to_rgb, draw_pushbox, save_img
 RENDER_AT_LENGTH = 32
 
 DIR_NAME = "data/arm2"
-N_SAMPLE = 1024
+# N_SAMPLE = 1024
+N_SAMPLE = 8192
 N_CEN_ANGLES = 4
-N_ARM_ANGLES = 4
-N_ARM_SEPS = 4
+N_ARM_ANGLES = 2
+N_ARM_SEPS = 3
+MAX_ARM_SEP = 0.36
 
 STOP_PROB = 0.0
 
@@ -47,7 +49,7 @@ def sample_controls(rng: np.random.Generator):
         assert center_state.shape == (3,)
 
         # Sample arm separation.
-        arm_sep_fracs = np.linspace(0, 0.5, N_ARM_SEPS + 1)[1:]
+        arm_sep_fracs = np.linspace(0, MAX_ARM_SEP, N_ARM_SEPS + 1)[1:]
         arm_seps = arm_sep_fracs * WIDTH
         arm_sep = rng.choice(arm_seps)
 
@@ -134,10 +136,17 @@ def main(seed: Optional[int] = typer.Option(...)):
         if len(images) == 0:
             # log.error("Somehow len(images) == 0!")
             pbar.write("Somehow len(images) == 0!")
+            rand_particle_num = rng.integers(140, 180)
+            sim.refresh(particle_num=rand_particle_num)
             continue
+
         if len(images) <= 2:
             # log.info("Skipping, not enough images!")
             pbar.write("Skipping, not enough images!")
+
+            # RESET SIM!
+            rand_particle_num = rng.integers(140, 180)
+            sim.refresh(particle_num=rand_particle_num)
             continue
 
         # 1: Convert RGB to grayscale. Also convert to np

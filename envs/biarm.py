@@ -439,6 +439,10 @@ class BiArmSim(pyglet.window.Window):
                 # Just for visualization.
                 self.render_to_screen()
 
+                self.clear_screen()
+                self.debug_draw()
+                images.append(self.get_image())
+
             vels = np.stack([np.linalg.norm(pusher.body.velocity) for pusher in self.pushers], axis=0)
             v_err_hist[steps] = vels - v_noms
             # (n_pushers, )

@@ -84,7 +84,7 @@ def draw_pushbox(
     # Draw an arrow indicating push direction.
     origin = np.array([cen_r + cen_x, cen_c + cen_y]).round().astype(int)
     goal = np.round(origin + np.array([np.cos(angle) * width, -np.sin(angle) * width])).astype(int)
-    img = cv2.arrowedLine(img, origin, goal, color=color)
+    img = cv2.arrowedLine(img, origin, goal, color=color, thickness=1, tipLength=0.15)
 
     return img
 
