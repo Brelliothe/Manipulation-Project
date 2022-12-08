@@ -164,6 +164,28 @@ def control_to_state(u: np.ndarray, width: int, height: int) -> np.ndarray:
     return start_state
 
 
+def biarm_state_to_centered(state: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """Convert biarm state to tuple of (center_x, center_y, center_rot), (left_rot, right_rot), arm_sep"""
+    assert state.shape == (2, 3)
+
+    center_pos = np.mean(state[:, :2], axis=0)
+    assert center_pos.shape == (2,)
+
+    # (2,)
+    diff_pos = state[1, :2] - state[0, :2]
+    center_rot = np.arctan2(diff_pos[1], diff_pos[0])
+
+    center_state = np.array([center_pos[0], center_pos[1], center_rot])
+    assert center_state.shape == (3,)
+
+    rots = state[:, 2] - center_rot
+    assert rots.shape == (2,)
+
+    arm_sep = np.linalg.norm(diff_pos)
+
+    return center_state, rots, arm_sep
+
+
 class BiArmSim(pyglet.window.Window):
     """
     Coordinate system:

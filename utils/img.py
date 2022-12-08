@@ -48,29 +48,37 @@ def cast_img_to_rgb(ims: Iterable[np.ndarray]) -> list[np.ndarray]:
     return out
 
 
-def draw_pushbox(img: np.ndarray, pushrect: tuple[float, float, float], pix_size: float) -> np.ndarray:
+def draw_pushbox(
+    img: np.ndarray, pushrect: tuple[float, float, float, float, float], color: tuple[float, float, float] | None = None
+) -> np.ndarray:
     cen_c, cen_r = img.shape[0] / 2, img.shape[1] / 2
+
+    cen_x, cen_y, push_w, push_l, angle = pushrect
 
     # center = (cen_r + pushrect[1] / 2, cen_c - pix_size / 2)
     # center = (cen_r, cen_c)
     # center = (0, -pix_size / 2)
     center = (0, 0)
-    angle = pushrect[2]
-    size = (pushrect[1], pushrect[0])
-    box = (center, size, -np.rad2deg(pushrect[2]))
-    push_rect = cv2.boxPoints(box)
+    size = (push_l, push_w)
+    box = (center, size, -np.rad2deg(angle))
+    push_rect = cv2.boxPoints(box).astype(float)
+    assert push_rect.shape == (4, 2)
 
     # Move the rotated rectangle, so that the middle of the left edge intersects the center.
-    width = pushrect[1] / 2
+    width = push_l / 2
     push_rect += np.array([cen_r + np.cos(angle) * width, cen_c - np.sin(angle) * width])
+    push_rect += np.array([cen_x, cen_y])
     push_rect = np.round(push_rect).astype(int)
 
     # log.info("draw pushbox dtype={}".format(img.dtype))
-    if img.dtype == np.float32 or img.dtype == np.float64:
+    if color is None:
         color = (0.01, 0.01, 1.0)
-    else:
-        color = (12, 12, 255)
 
+    if is_int_img(img):
+        color = np.round(255 * np.array(color)).astype(int)
+        color = tuple(color)
+
+    # log.info("push_rect: {}".format(push_rect))
     img = cv2.polylines(img, [push_rect], True, color, 1)
     return img
 
@@ -97,7 +105,7 @@ def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool = False):
         assert is_float_img(img)
 
         img_min, img_max = img.min(), img.max()
-        eps = 1e-5
+        eps = 1e-2
         err_msgs = []
         if img_min < -eps:
             err_msgs.append("min value of img from {:.2f}".format(img_min))

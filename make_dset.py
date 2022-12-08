@@ -217,7 +217,7 @@ def main():
 
                     UP_FACTOR = 16
                     push_w, push_l = 6, 2 * PUSH_FRAMES
-                    pushrect = (UP_FACTOR * push_w, UP_FACTOR * push_l, angle)
+                    pushrect = (0, 0, UP_FACTOR * push_w, UP_FACTOR * push_l, angle)
                     before, after, diff_img = [
                         draw_pushbox(upscale_img(img, factor=UP_FACTOR), pushrect, UP_FACTOR)
                         for img in [before, after, diff_img]

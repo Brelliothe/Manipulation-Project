@@ -43,8 +43,8 @@ def sample_control(rng: np.random.Generator):
     thetas, push_lengths = control_info(u, 1, 1)
     thetas = wrap_angle(thetas, 0.0)
 
-    all_angles = np.linspace(0, 1, N_ANGLES + 1)[:-1]
-    all_angles = (np.arange(4) * np.pi / 2)[:, None] + all_angles * np.pi / 2
+    angle_fracs = np.linspace(0, 1, N_ANGLES + 1)[:-1]
+    all_angles = (np.arange(4) * np.pi / 2)[:, None] + angle_fracs * np.pi / 2
     all_angles = all_angles.flatten()
 
     argmin = np.argmin((thetas.flatten() - all_angles) ** 2)
