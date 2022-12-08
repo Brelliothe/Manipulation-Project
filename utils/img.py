@@ -80,6 +80,12 @@ def draw_pushbox(
 
     # log.info("push_rect: {}".format(push_rect))
     img = cv2.polylines(img, [push_rect], True, color, 1)
+
+    # Draw an arrow indicating push direction.
+    origin = np.array([cen_r + cen_x, cen_c + cen_y]).round().astype(int)
+    goal = np.round(origin + np.array([np.cos(angle) * width, -np.sin(angle) * width])).astype(int)
+    img = cv2.arrowedLine(img, origin, goal, color=color)
+
     return img
 
 

@@ -113,6 +113,7 @@ def to_screen_pos(pos: np.ndarray, width: int, height: int) -> np.ndarray:
     :param pos: (..., 2)
     """
     assert pos.shape[-1] == 2
+    assert np.all(np.abs(pos) <= 0.5)
     # (0, 1)^2
     pos = pos + 0.5
     # (2, )
@@ -170,6 +171,9 @@ def biarm_state_to_centered(state: np.ndarray) -> tuple[np.ndarray, np.ndarray, 
     """Convert biarm state to tuple of (center_x, center_y, center_rot), (left_rot, right_rot), arm_sep"""
     assert state.shape == (2, 3)
 
+    # The first arm should have a smaller x coordinate, i.e., left arm.
+    assert state[0, 0] < state[1, 0]
+
     center_pos = np.mean(state[:, :2], axis=0)
     assert center_pos.shape == (2,)
 
@@ -198,16 +202,37 @@ def centered_to_biarm_state(center_state: np.ndarray, rots: np.ndarray, arm_sep:
     assert pos.shape == (2, 2)
     pos = pos + np.array([c_x, c_y])
 
-    u_l = np.array([pos[0, 0], pos[0, 1], c_rot + rots[0]])
-    u_r = np.array([pos[1, 0], pos[1, 1], c_rot + rots[1]])
+    state_l = np.array([pos[0, 0], pos[0, 1], c_rot + rots[0]])
+    state_r = np.array([pos[1, 0], pos[1, 1], c_rot + rots[1]])
 
-    u = np.stack([u_l, u_r], axis=0)
-    assert u.shape == (2, 3)
-    return u
+    state = np.stack([state_l, state_r], axis=0)
+    assert state.shape == (2, 3)
+
+    # x coordinate should be ascending.
+    assert state[0, 0] < state[1, 0]
+
+    return state
 
 
 def state_to_goal(state: np.ndarray, push_length: float) -> np.ndarray:
-    ...
+    assert state.shape == (3,)
+    px, py, theta = state
+    dx, dy = np.cos(theta) * push_length, np.sin(theta) * push_length
+
+    return np.array([px + dx, py + dy])
+
+
+def state_to_control(state: np.ndarray, push_length: float, width: float) -> np.ndarray:
+    assert state.shape == (2, 3)
+
+    goal_states = np.stack([state_to_goal(s, push_length) for s in state], axis=0)
+    assert goal_states.shape == (2, 2)
+
+    # [0, width]
+    u_screen = np.stack([state[:, :2], goal_states], axis=1)
+    # [0, width] -> [-0.5, 0.5]
+    u = u_screen / width - 0.5
+    return u
 
 
 class BiArmSim(pyglet.window.Window):

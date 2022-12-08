@@ -4,6 +4,7 @@ from typing import Optional
 
 import einops as ei
 import ipdb
+import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 import typer
@@ -11,6 +12,8 @@ from loguru import logger as log
 from PIL import Image
 
 from envs.biarm import BiArmSim
+from make_dset import to_float_img
+from utils.img import cast_img_to_rgb, draw_pushbox, save_img
 
 RENDER_AT_LENGTH = 32
 
@@ -64,6 +67,8 @@ def main(seed: Optional[int] = typer.Option(...)):
     dset_path = pathlib.Path(DIR_NAME)
     dset_path.mkdir(exist_ok=True, parents=True)
 
+    cmap = plt.get_cmap("RdBu")
+
     for _ in tqdm.trange(N_SAMPLE):
         u = sample_control(rng)
         images, info = sim.apply_control(u, RENDER_AT_LENGTH)
@@ -86,11 +91,33 @@ def main(seed: Optional[int] = typer.Option(...)):
         # 3: Save npz with both info.
         npz_path = dset_path / "{}.npz".format(ident)
         np.savez(npz_path, images=images, states=states)
+        # log.warning("NOT SAVING NPZ!!")
 
-        # 4: Save preview of images.
+        # 4: Draw pushbox
+        im0, im1 = to_float_img(images[0]), to_float_img(images[-1])
+
+        # [-1, 1] -> [0, 1]
+        diff = im1 - im0
+        diff = (diff + 1) / 2
+        diff_img = (cmap(diff)[:, :, :3]).astype(np.float32).copy()
+
+        im0, im1 = cast_img_to_rgb([im0, im1])
+        im0, im1 = im0.copy(), im1.copy()
+
+        center_angle = states[0, 0, 2]
+        box_color = (0.05, 0.05, 1.0)
+        push_w, push_l = 80.0, RENDER_AT_LENGTH * (len(images) - 1)
+
+        trans_x = states[0, 0, 0] - im0.shape[0] / 2
+        trans_y = im0.shape[1] / 2 - states[0, 0, 1]
+        pushrect = (trans_x, trans_y, push_w, push_l, center_angle)
+        im0, im1, diff_img = [draw_pushbox(im, pushrect, box_color) for im in [im0, im1, diff_img]]
+
+        preview_img = ei.rearrange([im0, im1, diff_img], "b h w dim -> h (b w) dim", b=3)
         preview_path = dset_path / "preview_{}.png".format(ident)
-        preview_img = ei.rearrange([images[0], images[-1]], "b h w -> h (b w)", b=2)
-        Image.fromarray(preview_img, "L").save(preview_path)
+        # preview_path = "preview.png"
+        save_img(preview_img, preview_path)
+        log.info("Saved to {}".format(preview_path))
 
         # 4: Reset sim.
         rand_particle_num = rng.integers(140, 180)
