@@ -348,8 +348,8 @@ class BiArmSim(pyglet.window.Window):
                 break
 
             if render_at_length is not None:
-                push_length = push_lengths[0]
-                if push_length >= save_at_length:
+                mean_push_length = np.mean(push_lengths)
+                if mean_push_length >= save_at_length:
                     self.clear_screen()
                     self.debug_draw()
                     images.append(self.get_image())
