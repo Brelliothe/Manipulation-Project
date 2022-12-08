@@ -14,6 +14,8 @@ from pyglet import gl
 from pymunk import Vec2d
 from scipy.spatial import ConvexHull
 
+from utils.angles import get_rotmat
+
 
 @define
 class Pusher:
@@ -184,6 +186,28 @@ def biarm_state_to_centered(state: np.ndarray) -> tuple[np.ndarray, np.ndarray, 
     arm_sep = np.linalg.norm(diff_pos)
 
     return center_state, rots, arm_sep
+
+
+def centered_to_biarm_state(center_state: np.ndarray, rots: np.ndarray, arm_sep: float) -> np.ndarray:
+    c_x, c_y, c_rot = center_state
+
+    # [left, right]
+    # (n_arm=2, 2)
+    pos = np.array([[-arm_sep / 2, 0], [arm_sep / 2, 0]])
+    pos = np.squeeze(get_rotmat(c_rot) @ pos[:, :, None], axis=2)
+    assert pos.shape == (2, 2)
+    pos = pos + np.array([c_x, c_y])
+
+    u_l = np.array([pos[0, 0], pos[0, 1], c_rot + rots[0]])
+    u_r = np.array([pos[1, 0], pos[1, 1], c_rot + rots[1]])
+
+    u = np.stack([u_l, u_r], axis=0)
+    assert u.shape == (2, 3)
+    return u
+
+
+def state_to_goal(state: np.ndarray, push_length: float) -> np.ndarray:
+    ...
 
 
 class BiArmSim(pyglet.window.Window):

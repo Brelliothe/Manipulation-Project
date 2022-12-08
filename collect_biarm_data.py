@@ -10,54 +10,81 @@ import typer
 from loguru import logger as log
 from PIL import Image
 
-from envs.biarm import BiArmSim, control_info
+from envs.biarm import BiArmSim, centered_to_biarm_state, control_info, state_to_goal
 from utils.angles import wrap_angle
 
 RENDER_AT_LENGTH = 32
 
 DIR_NAME = "data/arm2"
 N_SAMPLE = 1024
-N_ANGLES = 4
+N_CEN_ANGLES = 4
+N_ARM_ANGLES = 4
+N_ARM_SEPS = 4
 
 STOP_PROB = 0.0
 
+WIDTH = 512
+CEN_LIMS = 0.4
+GOAL_LIMS = 0.45
 
-def sample_control(rng: np.random.Generator):
-    INIT_LIMS = 0.4
-    GOAL_LIMS = 0.2
+
+def sample_controls(rng: np.random.Generator):
 
     # Coordinate is (-0.5, 0.5)^2.
-    init = rng.uniform(-INIT_LIMS, INIT_LIMS, size=(2,))
+    init = rng.uniform(-CEN_LIMS, CEN_LIMS, size=(2,))
 
-    if rng.binomial(1, STOP_PROB) == 1:
-        # Don't move.
-        goal = init
-        raise ValueError("")
-    else:
-        goal = rng.uniform(-GOAL_LIMS, GOAL_LIMS, size=(2,))
+    # Sample center angle.
+    cen_angle_fracs = np.linspace(0, 4, 4 * N_CEN_ANGLES + 1)[:-1]
+    cen_angles = cen_angle_fracs * np.pi / 2
+    cen_angle = rng.choice(cen_angles)
 
-    u = np.stack([init, goal], axis=0)[None, :, :]
-    assert u.shape == (1, 2, 2)
+    center_state = np.concatenate([init, cen_angle[None]], axis=1)
+    assert center_state.shape == (3,)
 
-    # Modify the goal so that the angle fits in one of the discrete bins.
-    thetas, push_lengths = control_info(u, 1, 1)
-    thetas = wrap_angle(thetas, 0.0)
+    # Sample arm separation.
+    arm_sep_fracs = np.linspace(0, 0.5, N_ARM_SEPS + 1)[1:]
+    arm_seps = arm_sep_fracs * WIDTH
+    arm_sep = rng.choice(arm_seps)
 
-    angle_fracs = np.linspace(0, 1, N_ANGLES + 1)[:-1]
-    all_angles = (np.arange(4) * np.pi / 2)[:, None] + angle_fracs * np.pi / 2
-    all_angles = all_angles.flatten()
+    # Sample arm angles.
+    arm_angle_fracs = np.linspace(0, 4, 4 * N_ARM_ANGLES + 1)[:-1]
+    arm_angles = arm_angle_fracs * np.pi / 2
+    arm_angles = rng.choice(arm_angles, (2,), replace=True)
 
-    argmin = np.argmin((thetas.flatten() - all_angles) ** 2)
-    theta = all_angles[argmin]
+    biarm_state = centered_to_biarm_state(center_state, arm_angles, arm_sep)
+    assert biarm_state.shape == (2, 3)
 
-    new_goal = init + push_lengths[0] * np.array([np.cos(theta), np.sin(theta)])
-    u = np.stack([init, new_goal], axis=0)[None, :, :]
-    assert u.shape == (1, 2, 2)
+    eps = 0.1
+    push_length = (np.choice([2.0, 4.0, 6.0]) + eps) * RENDER_AT_LENGTH
+    u = state_to_goal(biarm_state, push_length)
 
-    dist = np.linalg.norm(goal - new_goal)
-    log.info("dist: {}".format(dist))
+    return u, arm_angles
 
-    return u
+
+def sample_good_control(rng: np.random.Generator):
+    """Rejection sampling to get informative controls."""
+    while True:
+        u, arm_angles = sample_controls(rng)
+
+        eps = np.pi / 6
+        # Make sure the left arm is pointing right and the right arm is pointing left.
+        left_angle = wrap_angle(arm_angles[0], -np.pi)
+        left_point_right = -(np.pi / 2 + eps) <= left_angle and left_angle <= (np.pi / 2 + eps)
+        if not left_point_right:
+            continue
+
+        # Make sure the right arm is pointing left.
+        right_angle = wrap_angle(arm_angles[1], 0.0)
+        right_point_left = -(np.pi / 2 + eps) <= (right_angle - np.pi) and (right_angle - np.pi) <= (np.pi / 2 + eps)
+        if not right_point_left:
+            continue
+
+        # Make sure the goal is inside the region.
+        goal_pt = u[:, 1, :]
+        if np.any(goal_pt > GOAL_LIMS * WIDTH):
+            continue
+
+        return u
 
 
 def get_unique_ident(path: pathlib.Path) -> str:
@@ -83,9 +110,7 @@ def main(seed: Optional[int] = typer.Option(...)):
     dset_path.mkdir(exist_ok=True, parents=True)
 
     for _ in tqdm.trange(N_SAMPLE):
-        u0 = sample_control(rng)
-        u1 = sample_control(rng)
-        u = np.concatenate([u0, u1], axis=0)
+        u = sample_good_control(rng)
 
         images, info = sim.apply_control(u, RENDER_AT_LENGTH)
 

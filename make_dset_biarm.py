@@ -1,7 +1,6 @@
 import pathlib
 from itertools import product
 
-import cv2
 import einops as ei
 import ipdb
 import matplotlib.pyplot as plt
@@ -11,12 +10,9 @@ from loguru import logger as log
 
 from envs.biarm import biarm_state_to_centered
 from make_dset import get_npz_paths, process_img, to_float_img
-from utils.angles import wrap_angle
+from utils.angles import wrap_angle, get_rotmat
 from utils.img import (
-    compose_affine,
     draw_pushbox,
-    rotate_img,
-    rotate_mat,
     save_img,
     upscale_img,
 )
@@ -25,11 +21,6 @@ PUSH_FRAMES = 2
 N_CEN_ANGLES = 1
 # N_IMG_ANGLES = 4
 N_ARM_ANGLES = 4
-
-
-def get_rotmat(angle: float):
-    cos, sin = np.cos(angle), np.sin(angle)
-    return np.array([[cos, -sin], [sin, cos]])
 
 
 def main():
