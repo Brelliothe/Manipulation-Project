@@ -251,7 +251,7 @@ class BiArmSim(pyglet.window.Window):
                 ←---   width   ---→
     """
 
-    def __init__(self, n_arms: int = 2, do_render: bool = False, render_arm: bool = False):
+    def __init__(self, n_arms: int = 2, do_render: bool = False, render_arm: bool = False, seed: int | None = None):
         super().__init__(vsync=False)
 
         # Sim window parameters. These also define the resolution of the image
@@ -280,7 +280,9 @@ class BiArmSim(pyglet.window.Window):
 
         self.draw_options.shape_outline_color = (255, 255, 255, 0)
 
-        self.rng = np.random.default_rng(seed=84123)
+        if seed is None:
+            seed = 84123
+        self.rng = np.random.default_rng(seed=seed)
         self.do_render = do_render
         self.render_arm = render_arm
 

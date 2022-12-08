@@ -111,7 +111,7 @@ def get_unique_ident(path: pathlib.Path) -> str:
 
 
 def main(seed: Optional[int] = typer.Option(...)):
-    sim = BiArmSim(n_arms=2, render_arm=False)
+    sim = BiArmSim(n_arms=2, render_arm=False, seed=seed + 1842)
 
     if seed is None:
         seed = 76421
