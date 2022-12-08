@@ -66,7 +66,6 @@ def sample_controls(rng: np.random.Generator):
         if np.all(np.abs(u) < 0.45):
             break
 
-    log.info("Sampled {} {}".format(u, arm_angles))
     return u, arm_angles
 
 
@@ -83,20 +82,20 @@ def sample_good_control(rng: np.random.Generator):
         left_angle = wrap_angle(arm_angles[0], -np.pi)
         left_point_right = -(np.pi / 2 + eps) <= left_angle and left_angle <= (np.pi / 2 + eps)
         if not left_point_right:
-            log.info("left arm not pointing right...")
+            # log.info("left arm not pointing right...")
             continue
 
         # Make sure the right arm is pointing left.
         right_angle = wrap_angle(arm_angles[1], 0.0)
         right_point_left = -(np.pi / 2 + eps) <= (right_angle - np.pi) and (right_angle - np.pi) <= (np.pi / 2 + eps)
         if not right_point_left:
-            log.info("right arm not pointing left...")
+            # log.info("right arm not pointing left...")
             continue
 
         # Make sure the goal is inside the region.
         goal_pt = u[:, 1, :]
         if np.any(goal_pt > GOAL_LIMS * WIDTH):
-            log.info("goal not within region...")
+            # log.info("goal not within region...")
             continue
 
         return u, arm_angles
@@ -126,16 +125,19 @@ def main(seed: Optional[int] = typer.Option(...)):
 
     cmap = plt.get_cmap("RdBu")
 
-    for _ in tqdm.trange(N_SAMPLE):
+    pbar = tqdm.trange(N_SAMPLE)
+    for _ in pbar:
         u, arm_angles = sample_good_control(rng)
 
         images, info = sim.apply_control(u, RENDER_AT_LENGTH)
 
         if len(images) == 0:
-            log.error("Somehow len(images) == 0!")
+            # log.error("Somehow len(images) == 0!")
+            pbar.write("Somehow len(images) == 0!")
             continue
         if len(images) <= 2:
-            log.info("Skipping, not enough images!")
+            # log.info("Skipping, not enough images!")
+            pbar.write("Skipping, not enough images!")
             continue
 
         # 1: Convert RGB to grayscale. Also convert to np
@@ -181,7 +183,7 @@ def main(seed: Optional[int] = typer.Option(...)):
         # preview_path = dset_path / "preview.png".format(ident)
         preview_img = ei.rearrange([im0, im1, diff_img], "b h w dim -> h (b w) dim", b=3)
         save_img(preview_img, preview_path)
-        log.info("Saved to {}".format(preview_path))
+        # log.info("Saved to {}".format(preview_path))
 
         # ipdb.set_trace()
         # exit(0)
