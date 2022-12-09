@@ -169,3 +169,4 @@ scripts/plots
 plots
 *.npz
 vids
+sols
