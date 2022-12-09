@@ -51,7 +51,12 @@ def main():
     n_skipped = 0
     npz_path: pathlib.Path
     for ii, npz_path in enumerate(tqdm.tqdm(npz_paths)):
-        npz = np.load(npz_path)
+        try:
+            npz = np.load(npz_path)
+        except Exception as e:
+            log.error("Error when trying to load npz: {}\nSkipping..".format(repr(e)))
+            continue
+
         images, states = npz["images"], npz["states"]
         assert len(images) == len(states)
 
