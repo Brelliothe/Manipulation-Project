@@ -223,3 +223,19 @@ def state_to_control(state: np.ndarray, push_length: float, width: float) -> np.
     # [0, width] -> [-0.5, 0.5]
     u = u_screen / width - 0.5
     return u
+
+
+def modify_pushlength(u: np.ndarray, A_length: float, n_pred_lengths: int) -> np.ndarray:
+    # A_length = 32 * 32 * push_frames / 512
+    # u: (n_arms, 2, nx=2)
+    WIDTH, HEIGHT = 512, 512
+    push_frames = A_length * 512 / (32 * 32)
+
+    thetas, real_pushlengths = control_info(u, WIDTH, HEIGHT)
+    desired_pushlengths = n_pred_lengths * push_frames * 32
+
+    coeff = desired_pushlengths / real_pushlengths
+
+    new_u = u.copy()
+    new_u[:, 1, :] = u[:, 0, :] + coeff * (u[:, 1, :] - u[:, 0, :])
+    return new_u

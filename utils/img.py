@@ -59,7 +59,7 @@ def draw_pushbox(
     # center = (cen_r, cen_c)
     # center = (0, -pix_size / 2)
     center = (0, 0)
-    size = (push_l, push_w)
+    size = (int(push_l), int(push_w))
     box = (center, size, -np.rad2deg(angle))
     push_rect = cv2.boxPoints(box).astype(float)
     assert push_rect.shape == (4, 2)
@@ -78,6 +78,8 @@ def draw_pushbox(
         color = np.round(255 * np.array(color)).astype(int)
         color = tuple(color)
 
+    orig_img = img.copy()
+
     # log.info("push_rect: {}".format(push_rect))
     img = cv2.polylines(img, [push_rect], True, color, 1)
 
@@ -85,6 +87,9 @@ def draw_pushbox(
     origin = np.array([cen_r + cen_x, cen_c + cen_y]).round().astype(int)
     goal = np.round(origin + np.array([np.cos(angle) * width, -np.sin(angle) * width])).astype(int)
     img = cv2.arrowedLine(img, origin, goal, color=color, thickness=1, tipLength=0.15)
+
+    alpha = 0.4
+    img = cv2.addWeighted(img, alpha, orig_img, 1 - alpha, 0.0)
 
     return img
 

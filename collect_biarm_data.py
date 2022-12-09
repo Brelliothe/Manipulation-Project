@@ -12,24 +12,32 @@ import typer
 from loguru import logger as log
 from PIL import Image
 
-from envs.biarm import (BiArmSim)
-from envs.biarm_utils import to_screen_pos, control_info, biarm_state_to_centered, centered_to_biarm_state, \
-    state_to_goal, state_to_control
+from envs.biarm import BiArmSim
+from envs.biarm_utils import (biarm_state_to_centered, centered_to_biarm_state, control_info, state_to_control,
+                              state_to_goal, to_screen_pos)
 from make_dset import to_float_img
 from utils.angles import get_rotmat, wrap_angle
 from utils.img import cast_img_to_rgb, draw_pushbox, save_img
 
 RENDER_AT_LENGTH = 32
 
-DIR_NAME = "data/arm2"
-# N_SAMPLE = 1024
-# N_SAMPLE = 4096
-N_SAMPLE = 8192
-# N_SAMPLE = 1 << 12
-N_CEN_ANGLES = 4
-N_ARM_ANGLES = 2
-N_ARM_SEPS = 3
-MAX_ARM_SEP = 0.36
+COLLECT_TRAIN = False
+
+if COLLECT_TRAIN:
+    DIR_NAME = "data/arm2"
+    N_SAMPLE = 8192
+    N_CEN_ANGLES = 4
+    N_ARM_ANGLES = 2
+    N_ARM_SEPS = 3
+    MAX_ARM_SEP = 0.36
+else:
+    DIR_NAME = "val_data/arm2"
+    N_SAMPLE = 256
+    N_CEN_ANGLES = 4
+    N_ARM_ANGLES = 2
+    N_ARM_SEPS = 6
+    MAX_ARM_SEP = 0.72
+
 
 STOP_PROB = 0.0
 
@@ -42,28 +50,34 @@ def sample_controls(rng: np.random.Generator):
     while True:
         # Sample arm separation.
         arm_sep_fracs = np.linspace(0, MAX_ARM_SEP, N_ARM_SEPS + 1)[1:]
-        arm_seps = arm_sep_fracs * WIDTH
-        arm_sep = rng.choice(arm_seps)
+        arm_sep_frac = rng.choice(arm_sep_fracs)
+        arm_sep = arm_sep_frac * WIDTH
+
+        log.info("arm_sep_frac: {}".format(arm_sep_frac))
 
         # Sample arm angles.
-        arm_angle_fracs = np.linspace(0, 4, 4 * N_ARM_ANGLES + 1)[:-1]
-        arm_angles = arm_angle_fracs * np.pi / 2
-        arm_angles = rng.choice(arm_angles, (2,), replace=True)
+        while True:
+            arm_angle_fracs = np.linspace(0, 4, 4 * N_ARM_ANGLES + 1)[:-1]
+            arm_angles = arm_angle_fracs * np.pi / 2
+            arm_angles = rng.choice(arm_angles, (2,), replace=True)
 
-        eps = np.pi / 6
-        # Make sure the left arm is pointing right and the right arm is pointing left.
-        left_angle = wrap_angle(arm_angles[0], -np.pi)
-        left_point_right = -(np.pi / 2 + eps) <= left_angle and left_angle <= (np.pi / 2 + eps)
-        if not left_point_right:
-            # log.info("left arm not pointing right...")
-            continue
+            eps = np.pi / 6
+            # Make sure the left arm is pointing right and the right arm is pointing left.
+            left_angle = wrap_angle(arm_angles[0], -np.pi)
+            left_point_right = -(np.pi / 2 + eps) <= left_angle and left_angle <= (np.pi / 2 + eps)
+            if not left_point_right:
+                # log.info("left arm not pointing right...")
+                continue
 
-        # Make sure the right arm is pointing left.
-        right_angle = wrap_angle(arm_angles[1], 0.0)
-        right_point_left = -(np.pi / 2 + eps) <= (right_angle - np.pi) and (right_angle - np.pi) <= (np.pi / 2 + eps)
-        if not right_point_left:
-            # log.info("right arm not pointing left...")
-            continue
+            # Make sure the right arm is pointing left.
+            right_angle = wrap_angle(arm_angles[1], 0.0)
+            right_point_left = -(np.pi / 2 + eps) <= (right_angle - np.pi) and (right_angle - np.pi) <= (
+                np.pi / 2 + eps
+            )
+            if not right_point_left:
+                # log.info("right arm not pointing left...")
+                continue
+            break
 
         while True:
             # Coordinate is (-0.5, 0.5)^2.
@@ -121,6 +135,14 @@ def get_unique_ident(path: pathlib.Path) -> str:
 
 
 def main(seed: Optional[int] = typer.Option(...)):
+    if COLLECT_TRAIN:
+        log.info("COLLECT TRAIN!")
+    else:
+        log.info("COLLECT VAL!")
+
+    arm_sep_fracs = np.linspace(0, MAX_ARM_SEP, N_ARM_SEPS + 1)[1:]
+    log.info("arm_sep_fracs: {}".format(arm_sep_fracs))
+
     sim = BiArmSim(n_arms=2, render_arm=False, seed=seed + 1842)
 
     if seed is None:
@@ -184,8 +206,7 @@ def main(seed: Optional[int] = typer.Option(...)):
 
         #    Draw pushbox.
         for arm_idx in range(2):
-            # arm_angle = rots[arm_idx]
-            arm_angle = states[0, arm_idx, 2]
+            arm_angle = state0[arm_idx, 2]
             box_color = (0.05, 0.05, 1.0) if arm_idx == 0 else (0.05, 1.0, 0.05)
             push_w, push_l = 6 * 16, RENDER_AT_LENGTH * (len(images) - 1)
 

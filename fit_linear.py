@@ -14,7 +14,7 @@ from utils.img import draw_pushbox, save_img, upscale_img
 
 
 def main():
-    npz_path = pathlib.Path("dset/data.npz")
+    npz_path = pathlib.Path("dset/arm1/data.npz")
     npz = np.load(npz_path)
     log.info("loaded!")
 
@@ -76,14 +76,14 @@ def main():
         UP_FACTOR = 4
         angle = angle_frac * np.pi / 2
         push_w, push_l = 6, 2 * push_frames
-        pushrect = (UP_FACTOR * push_w, UP_FACTOR * push_l, angle)
+        pushrect = (0, 0, UP_FACTOR * push_w, UP_FACTOR * push_l, angle)
 
         pred_im1, true_im1, diff_img = [
             np.stack([draw_pushbox(upscale_img(im, UP_FACTOR), pushrect, UP_FACTOR) for im in ims], axis=0)
             for ims in [pred_im1, true_im1, diff_img]
         ]
 
-        plot_dir = pathlib.Path(__file__).parent / "plots"
+        plot_dir = pathlib.Path(__file__).parent / "plots/arm1"
         plot_dir.mkdir(exist_ok=True, parents=True)
 
         # Each instance is a row. Stack rows.
@@ -93,7 +93,10 @@ def main():
     # (n_angles, w * h, w * h). curr_x^T A = next_x^T
     As = np.stack(As, axis=0)
     As = ei.rearrange(As, "n_angles fr to -> n_angles to fr")
-    np.savez("sol.npz", As=As, angle_fracs=angle_fracs, push_frames=push_frames)
+
+    sol_path = pathlib.Path("sols/arm1.npz")
+    sol_path.parent.mkdir(exist_ok=True, parents=True)
+    np.savez(sol_path, As=As, angle_fracs=angle_fracs, push_frames=push_frames)
 
     # lstsq_A, resid, rank, s = torch.linalg.lstsq(im0_vec, delta_vec, 1e-8)
 

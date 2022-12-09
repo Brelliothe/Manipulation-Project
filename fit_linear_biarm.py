@@ -92,7 +92,7 @@ def main():
                 ls_A = im0_vec
                 ls_B = delta_vec
 
-            ls_A, info = solve_ridge(ls_A, ls_B, reg=0.1)
+            ls_A, info = solve_ridge(ls_A, ls_B, reg=0.1, clip_thresh=4.0)
             resids = info["resids"]
             log.info("    mean_err: {:.2f}, max_err: {:.2f}".format(resids.mean(), resids.max()))
 
@@ -186,7 +186,7 @@ def main():
         push_frames=push_frames
     )
 
-    # Histogram of residuals.
+    # Histogram of mean residuals for each configuration.
     eval_resids = np.array(eval_resids)
     fig, ax = plt.subplots(constrained_layout=True)
     ax.hist(eval_resids)
