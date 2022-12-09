@@ -1,4 +1,5 @@
 import pathlib
+import gc
 import secrets
 from typing import Optional
 
@@ -21,8 +22,8 @@ RENDER_AT_LENGTH = 32
 
 DIR_NAME = "data/arm2"
 # N_SAMPLE = 1024
-# N_SAMPLE = 8192
-N_SAMPLE = 1 << 14
+N_SAMPLE = 4096
+# N_SAMPLE = 1 << 12
 N_CEN_ANGLES = 4
 N_ARM_ANGLES = 2
 N_ARM_SEPS = 3
@@ -201,6 +202,8 @@ def main(seed: Optional[int] = typer.Option(...)):
         # 4: Reset sim.
         rand_particle_num = rng.integers(140, 180)
         sim.refresh(particle_num=rand_particle_num)
+
+        gc.collect()
 
 
 if __name__ == "__main__":
