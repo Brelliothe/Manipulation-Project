@@ -1,5 +1,5 @@
-import pathlib
 import gc
+import pathlib
 import secrets
 from typing import Optional
 
@@ -12,8 +12,9 @@ import typer
 from loguru import logger as log
 from PIL import Image
 
-from envs.biarm import (BiArmSim, biarm_state_to_centered, centered_to_biarm_state, control_info, state_to_control,
-                        state_to_goal, to_screen_pos)
+from envs.biarm import (BiArmSim)
+from envs.biarm_utils import to_screen_pos, control_info, biarm_state_to_centered, centered_to_biarm_state, \
+    state_to_goal, state_to_control
 from make_dset import to_float_img
 from utils.angles import get_rotmat, wrap_angle
 from utils.img import cast_img_to_rgb, draw_pushbox, save_img
@@ -39,18 +40,6 @@ GOAL_LIMS = 0.45
 
 def sample_controls(rng: np.random.Generator):
     while True:
-        # Coordinate is (-0.5, 0.5)^2.
-        init = rng.uniform(-CEN_LIMS, CEN_LIMS, size=(2,))
-
-        # Sample center angle.
-        cen_angle_fracs = np.linspace(0, 1.0, N_CEN_ANGLES + 1)[:-1]
-        cen_angles = cen_angle_fracs * np.pi / 2
-        cen_angle = rng.choice(cen_angles)
-
-        init_screen = to_screen_pos(init, WIDTH, WIDTH)
-        center_state = np.concatenate([init_screen, cen_angle[None]], axis=0)
-        assert center_state.shape == (3,)
-
         # Sample arm separation.
         arm_sep_fracs = np.linspace(0, MAX_ARM_SEP, N_ARM_SEPS + 1)[1:]
         arm_seps = arm_sep_fracs * WIDTH
@@ -60,27 +49,6 @@ def sample_controls(rng: np.random.Generator):
         arm_angle_fracs = np.linspace(0, 4, 4 * N_ARM_ANGLES + 1)[:-1]
         arm_angles = arm_angle_fracs * np.pi / 2
         arm_angles = rng.choice(arm_angles, (2,), replace=True)
-
-        biarm_state = centered_to_biarm_state(center_state, arm_angles, arm_sep)
-        assert biarm_state.shape == (2, 3)
-
-        eps = 0.1
-        push_length = (rng.choice([2.0, 4.0, 6.0]) + eps) * RENDER_AT_LENGTH
-        u = state_to_control(biarm_state, push_length, WIDTH)
-
-        if np.all(np.abs(u) < 0.45):
-            break
-
-    return u, arm_angles
-
-
-def sample_good_control(rng: np.random.Generator):
-    """Rejection sampling to get informative controls."""
-    while True:
-        u, arm_angles = sample_controls(rng)
-
-        # x coordinate should be ascending.
-        assert u[0, 0, 0] < u[1, 0, 0]
 
         eps = np.pi / 6
         # Make sure the left arm is pointing right and the right arm is pointing left.
@@ -97,13 +65,50 @@ def sample_good_control(rng: np.random.Generator):
             # log.info("right arm not pointing left...")
             continue
 
-        # Make sure the goal is inside the region.
-        goal_pt = u[:, 1, :]
-        if np.any(goal_pt > GOAL_LIMS * WIDTH):
-            # log.info("goal not within region...")
-            continue
+        while True:
+            # Coordinate is (-0.5, 0.5)^2.
+            init = rng.uniform(-CEN_LIMS, CEN_LIMS, size=(2,))
 
-        return u, arm_angles
+            # Sample center angle.
+            cen_angle_fracs = np.linspace(0, 1.0, N_CEN_ANGLES + 1)[:-1]
+            cen_angles = cen_angle_fracs * np.pi / 2
+            cen_angle = rng.choice(cen_angles)
+
+            init_screen = to_screen_pos(init, WIDTH, WIDTH)
+            center_state = np.concatenate([init_screen, cen_angle[None]], axis=0)
+            assert center_state.shape == (3,)
+
+            biarm_state = centered_to_biarm_state(center_state, arm_angles, arm_sep)
+            assert biarm_state.shape == (2, 3)
+
+            eps = 0.1
+            push_length = (rng.choice([2.0, 4.0, 6.0]) + eps) * RENDER_AT_LENGTH
+            u = state_to_control(biarm_state, push_length, WIDTH)
+
+            # Make sure the goal is inside the region.
+            goal_pt = u[:, 1, :]
+            if np.any(goal_pt > GOAL_LIMS * WIDTH):
+                # log.info("goal not within region...")
+                continue
+
+            if not np.all(np.abs(u) < 0.45):
+                continue
+
+            break
+
+        break
+
+    return u, arm_angles
+
+
+def sample_good_control(rng: np.random.Generator):
+    """Rejection sampling to get informative controls."""
+    u, arm_angles = sample_controls(rng)
+
+    # x coordinate should be ascending.
+    assert u[0, 0, 0] < u[1, 0, 0]
+
+    return u, arm_angles
 
 
 def get_unique_ident(path: pathlib.Path) -> str:

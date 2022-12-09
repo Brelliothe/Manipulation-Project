@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from loguru import logger as log
 
-from envs.biarm import control_info, from_screen_pos
+from envs.biarm_utils import from_screen_pos, control_info
 from make_dset import downsample_img, get_npz_paths, process_img, shift_img, to_float_img
 from models.linear_dyn import predict_onearm
 from utils.img import save_img

@@ -10,7 +10,7 @@ from einops.layers.torch import Rearrange
 from loguru import logger as log
 from PIL.Image import fromarray
 
-from envs.biarm import control_info, control_to_state, to_screen_pos
+from envs.biarm_utils import to_screen_pos, control_info, control_to_state
 from make_dset import center_img, center_img_2, downsample_img, downsample_state, shift_img, uncenter_img
 from utils.angles import wrap_angle
 from utils.img import cast_img_to_rgb, rotate_img, save_img

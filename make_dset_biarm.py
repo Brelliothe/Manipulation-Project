@@ -9,7 +9,7 @@ import numpy as np
 import tqdm
 from loguru import logger as log
 
-from envs.biarm import biarm_state_to_centered
+from envs.biarm_utils import biarm_state_to_centered
 from make_dset import center_img, get_npz_paths, process_img, to_float_img
 from utils.angles import get_rotmat, wrap_angle
 from utils.img import cast_img_to_rgb, draw_pushbox, save_img, upscale_img
