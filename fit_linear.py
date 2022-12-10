@@ -4,6 +4,7 @@ import einops as ei
 import ipdb
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy
 import torch
 import tqdm
 from loguru import logger as log
@@ -11,6 +12,8 @@ from loguru import logger as log
 from training.train_linear_dyn import LinearDynTrainer
 from utils.conversions import tonp
 from utils.img import draw_pushbox, save_img, upscale_img
+
+N_EVAL = 8
 
 
 def main():
@@ -28,37 +31,48 @@ def main():
     device = torch.device("cuda:0")
 
     As = []
-    for angle_idx, angle_frac in enumerate(tqdm.tqdm(angle_fracs)):
+    for angle_idx, angle_frac in enumerate(angle_fracs):
         # (n_samples, n_angles, 2, W, H) -> (n_samples, W, H)
-        im0, im1 = torch.Tensor(imgs[:, angle_idx, 0, :, :]), torch.Tensor(imgs[:, angle_idx, 1, :, :])
-        im0, im1 = im0.to(device), im1.to(device)
+        im0, im1 = imgs[:, angle_idx, 0, :, :], imgs[:, angle_idx, 1, :, :]
 
         # Initialize with least squares fit.
         im0_vec = ei.rearrange(im0, "batch W H -> batch (W H)")
         im1_vec = ei.rearrange(im1, "batch W H -> batch (W H)")
         delta_vec = im1_vec - im0_vec
-        # [-1, 1]
-        log.info("delta min={}, max={}".format(delta_vec.min(), delta_vec.max()))
 
-        # Solve least-squares using SVD.
-        ls_A = im0_vec
-        ls_B = delta_vec
-        # U: (n_samples, w*h), S: (w*h, ), Vh: (w*h, w*h)
-        U, S, Vh = torch.linalg.svd(ls_A, full_matrices=False)
+        ls_A = im0_vec[N_EVAL:, :]
+        ls_B = im1_vec[N_EVAL:, :]
 
-        # Regularize S.
-        S = torch.clip(S, min=0.1)
-        S_inv = 1 / S
+        # Call nnls on each column separately.
+        rnorms = []
+        A_cols = []
+        for ii in tqdm.trange(w * h):
+            A_col, rnorm = scipy.optimize.nnls(ls_A, ls_B[:, ii])
+            A_cols.append(A_col)
+            rnorms.append(rnorm)
+        A = ei.rearrange(A_cols, "ncols nrows -> nrows ncols")
 
-        ls_A = Vh.T @ torch.diag(S_inv) @ (U.T @ ls_B)
-        assert ls_A.shape == (w * h, w * h)
-        log.info("{} {} {}".format(U.shape, S.shape, Vh.shape))
-        As.append(tonp(ls_A))
+        rnorms = np.stack(rnorms)
+        log.info("rnorm min={}, max={}".format(rnorms.min(), rnorms.max()))
+
+        # # Solve least-squares using SVD.
+        # ls_A = im0_vec
+        # ls_B = delta_vec
+        # # U: (n_samples, w*h), S: (w*h, ), Vh: (w*h, w*h)
+        # U, S, Vh = torch.linalg.svd(ls_A, full_matrices=False)
+        #
+        # # Regularize S.
+        # S = torch.clip(S, min=0.1)
+        # S_inv = 1 / S
+        #
+        # ls_A = Vh.T @ torch.diag(S_inv) @ (U.T @ ls_B)
+        # assert ls_A.shape == (w * h, w * h)
+        # log.info("{} {} {}".format(U.shape, S.shape, Vh.shape))
+
+        As.append(A)
 
         # Evaluate the least squares.
-        rng = np.random.default_rng(seed=1742)
-        N_EVAL = 8
-        eval_idxs = rng.choice(n_samples, N_EVAL, replace=False)
+        eval_idxs = np.arange(N_EVAL)
         pred_im1_vec = tonp(im0_vec[eval_idxs] @ ls_A + im0_vec[eval_idxs])
         true_im1_vec = tonp(im1_vec[eval_idxs])
 
