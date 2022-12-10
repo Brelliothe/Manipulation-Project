@@ -47,68 +47,65 @@ GOAL_LIMS = 0.45
 
 
 def sample_controls(rng: np.random.Generator):
+    # Sample arm separation.
+    arm_sep_fracs = np.linspace(0, MAX_ARM_SEP, N_ARM_SEPS + 1)[1:]
+    arm_sep_frac = rng.choice(arm_sep_fracs)
+    arm_sep = arm_sep_frac * WIDTH
+
+    log.info("arm_sep_frac: {}".format(arm_sep_frac))
+
+    # Sample arm angles.
     while True:
-        # Sample arm separation.
-        arm_sep_fracs = np.linspace(0, MAX_ARM_SEP, N_ARM_SEPS + 1)[1:]
-        arm_sep_frac = rng.choice(arm_sep_fracs)
-        arm_sep = arm_sep_frac * WIDTH
+        arm_angle_fracs = np.linspace(0, 4, 4 * N_ARM_ANGLES + 1)[:-1]
+        arm_angles = arm_angle_fracs * np.pi / 2
+        arm_angles = rng.choice(arm_angles, (2,), replace=True)
 
-        log.info("arm_sep_frac: {}".format(arm_sep_frac))
+        eps = np.pi / 6
+        # Make sure the left arm is pointing right and the right arm is pointing left.
+        left_angle = wrap_angle(arm_angles[0], -np.pi)
+        left_point_right = -(np.pi / 2 + eps) <= left_angle and left_angle <= (np.pi / 2 + eps)
+        if not left_point_right:
+            # log.info("left arm not pointing right...")
+            continue
 
-        # Sample arm angles.
-        while True:
-            arm_angle_fracs = np.linspace(0, 4, 4 * N_ARM_ANGLES + 1)[:-1]
-            arm_angles = arm_angle_fracs * np.pi / 2
-            arm_angles = rng.choice(arm_angles, (2,), replace=True)
+        # Make sure the right arm is pointing left.
+        right_angle = wrap_angle(arm_angles[1], 0.0)
+        right_point_left = -(np.pi / 2 + eps) <= (right_angle - np.pi) and (right_angle - np.pi) <= (
+            np.pi / 2 + eps
+        )
+        if not right_point_left:
+            # log.info("right arm not pointing left...")
+            continue
+        break
 
-            eps = np.pi / 6
-            # Make sure the left arm is pointing right and the right arm is pointing left.
-            left_angle = wrap_angle(arm_angles[0], -np.pi)
-            left_point_right = -(np.pi / 2 + eps) <= left_angle and left_angle <= (np.pi / 2 + eps)
-            if not left_point_right:
-                # log.info("left arm not pointing right...")
-                continue
+    while True:
+        # Coordinate is (-0.5, 0.5)^2.
+        init = rng.uniform(-CEN_LIMS, CEN_LIMS, size=(2,))
 
-            # Make sure the right arm is pointing left.
-            right_angle = wrap_angle(arm_angles[1], 0.0)
-            right_point_left = -(np.pi / 2 + eps) <= (right_angle - np.pi) and (right_angle - np.pi) <= (
-                np.pi / 2 + eps
-            )
-            if not right_point_left:
-                # log.info("right arm not pointing left...")
-                continue
-            break
+        # Sample center angle.
+        cen_angle_fracs = np.linspace(0, 1.0, N_CEN_ANGLES + 1)[:-1]
+        cen_angles = cen_angle_fracs * np.pi / 2
+        cen_angle = rng.choice(cen_angles)
 
-        while True:
-            # Coordinate is (-0.5, 0.5)^2.
-            init = rng.uniform(-CEN_LIMS, CEN_LIMS, size=(2,))
+        init_screen = to_screen_pos(init, WIDTH, WIDTH)
+        center_state = np.concatenate([init_screen, cen_angle[None]], axis=0)
+        assert center_state.shape == (3,)
 
-            # Sample center angle.
-            cen_angle_fracs = np.linspace(0, 1.0, N_CEN_ANGLES + 1)[:-1]
-            cen_angles = cen_angle_fracs * np.pi / 2
-            cen_angle = rng.choice(cen_angles)
+        biarm_state = centered_to_biarm_state(center_state, arm_angles, arm_sep)
+        assert biarm_state.shape == (2, 3)
 
-            init_screen = to_screen_pos(init, WIDTH, WIDTH)
-            center_state = np.concatenate([init_screen, cen_angle[None]], axis=0)
-            assert center_state.shape == (3,)
+        eps = 0.1
+        push_length = (rng.choice([2.0, 4.0, 6.0]) + eps) * RENDER_AT_LENGTH
+        u = state_to_control(biarm_state, push_length, WIDTH)
 
-            biarm_state = centered_to_biarm_state(center_state, arm_angles, arm_sep)
-            assert biarm_state.shape == (2, 3)
+        # Make sure the goal is inside the region.
+        goal_pt = u[:, 1, :]
+        if np.any(goal_pt > GOAL_LIMS * WIDTH):
+            # log.info("goal not within region...")
+            continue
 
-            eps = 0.1
-            push_length = (rng.choice([2.0, 4.0, 6.0]) + eps) * RENDER_AT_LENGTH
-            u = state_to_control(biarm_state, push_length, WIDTH)
-
-            # Make sure the goal is inside the region.
-            goal_pt = u[:, 1, :]
-            if np.any(goal_pt > GOAL_LIMS * WIDTH):
-                # log.info("goal not within region...")
-                continue
-
-            if not np.all(np.abs(u) < 0.45):
-                continue
-
-            break
+        if not np.all(np.abs(u) < 0.45):
+            continue
 
         break
 
