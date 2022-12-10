@@ -41,7 +41,7 @@ def sample_control(rng: np.random.Generator, n_cen_angles: int, n_arm_angles: in
     while True:
         arm_angles = rng.choice(all_arm_angles, (2,), replace=True)
 
-        eps = np.pi / 6
+        eps = np.pi / 12
         # Make sure the left arm is pointing right and the right arm is pointing left.
         left_angle = wrap_angle(arm_angles[0], -np.pi)
         left_point_right = -(np.pi / 2 + eps) <= left_angle and left_angle <= (np.pi / 2 + eps)
@@ -131,7 +131,7 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
 def main():
     sim = BiArmSim(n_arms=2, do_render=True)
 
-    batch = 128
+    batch = 512
 
     down_w, down_h = 32, 32
 
