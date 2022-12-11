@@ -108,7 +108,7 @@ def main(method: str = "nnls"):
     As = np.stack(As, axis=0)
     As = ei.rearrange(As, "n_angles fr to -> n_angles to fr")
 
-    sol_path = pathlib.Path("sols/arm1.npz")
+    sol_path = pathlib.Path("sols") / method / "arm1.npz"
     sol_path.parent.mkdir(exist_ok=True, parents=True)
     np.savez(sol_path, As=As, angle_fracs=angle_fracs, push_frames=push_frames)
 

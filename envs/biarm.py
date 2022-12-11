@@ -10,8 +10,16 @@ from PIL import Image
 from pyglet import gl
 from pymunk import Vec2d
 
-from envs.biarm_utils import (Particle, ParticleCfg, Pusher, PusherCfg, create_particle, create_pusher, from_screen_pos,
-                              to_screen_pos)
+from envs.biarm_utils import (
+    Particle,
+    ParticleCfg,
+    Pusher,
+    PusherCfg,
+    create_particle,
+    create_pusher,
+    from_screen_pos,
+    to_screen_pos,
+)
 
 
 class BiArmSim(pyglet.window.Window):
@@ -141,7 +149,11 @@ class BiArmSim(pyglet.window.Window):
         self.pushers = []
 
     def apply_control(
-        self, u: Float[np.ndarray, "8"], render_at_length: float | None = None, render_every: int | None = None
+        self,
+        u: Float[np.ndarray, "8"],
+        render_at_length: float | None = None,
+        render_every: int | None = None,
+        save_img_every: int | None = None,
     ) -> tuple[list[Image], dict]:
         """
         Apply a control action, run the simulation forward then return.
@@ -217,9 +229,9 @@ class BiArmSim(pyglet.window.Window):
             elif render_every is not None and steps % render_every == 0:
                 # Just for visualization.
                 self.render_to_screen()
-
+            elif save_img_every is not None and steps % save_img_every == 0:
                 self.clear_screen()
-                self.debug_draw()
+                self.debug_draw(draw_pusher=True)
                 images.append(self.get_image())
 
             vels = np.stack([np.linalg.norm(pusher.body.velocity) for pusher in self.pushers], axis=0)
@@ -259,7 +271,6 @@ class BiArmSim(pyglet.window.Window):
         # Wait 1 second in sim time to slow down moving pieces, and render.
         self.advance_s(1.0)
         self.remove_pushers()
-        # self.render_to_screen()
 
         if len(pusher_states) > 0:
             pusher_states = np.stack(pusher_states, axis=0)
@@ -334,14 +345,15 @@ class BiArmSim(pyglet.window.Window):
     def debug_draw(self, draw_pusher: bool = False):
         # log.info("use_chipmunk_debug_draw: {}".format(self.draw_options._use_chipmunk_debug_draw))
 
-        if not self.render_arm:
+        keep_arm = draw_pusher or self.render_arm
+        if not keep_arm:
             # Remove pusher, draw, then add pusher back.
             for pusher in self.pushers:
                 self.space.remove(pusher.shape, pusher.body)
 
         self.space.debug_draw(self.draw_options)
 
-        if not self.render_arm:
+        if not keep_arm:
             for pusher in self.pushers:
                 self.space.add(pusher.shape, pusher.body)
 

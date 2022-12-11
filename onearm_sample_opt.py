@@ -6,40 +6,54 @@ import numpy as np
 import skvideo.io
 import torch
 import torch.distributions as td
+import typer
 from loguru import logger as log
 from torch.nn.functional import relu
 
 from envs.biarm import BiArmSim
 from make_dset import downsample_img, to_float_img, to_uint8_img
 from models.linear_dyn import predict_onearm
-from utils.img import draw_circle, save_img, cast_img_to_rgb
+from utils.img import cast_img_to_rgb, draw_circle, save_img
 
 # N_ACTIONS = 100
 N_ACTIONS = 50
 TARGET_RADIUS = 5.0
+RENDER_EVERY = 50
+SAVE_IMG_EVERY = 20
 
 
-def sample_controls(batch: int, angle_fracs: torch.Tensor, push_frames: int) -> torch.Tensor:
+def sample_control(rng: np.random.Generator, angle_fracs: np.ndarray, push_frames: int) -> np.ndarray:
     (n_angles,) = angle_fracs.shape
     LIMS = 0.4
+    GOAL_LIMS = 0.4
     WIDTH = 512
     push_dist = 32 * push_frames / WIDTH
 
     # Coordinate is (-0.5, 0.5)^2.
-    pos_dist = td.Uniform(-LIMS, LIMS)
-    # (batch, 2)
-    init = pos_dist.sample((batch, 2))
+    # (2, )
+    init = rng.uniform(-LIMS, LIMS, (2,))
 
-    angle_frac_idx = torch.randint(n_angles, (batch,))
-    n_90s = torch.randint(4, (batch,))
-    angles = angle_fracs[angle_frac_idx] + n_90s * np.pi / 2
+    while True:
+        angle_frac_idx = rng.integers(0, n_angles)
+        n_90s = rng.integers(0, 4)
+        angles = angle_fracs[angle_frac_idx] + n_90s * np.pi / 2
 
-    # (batch, 2)
-    delta = push_dist * torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
-    goal = init + delta
+        # (2, )
+        delta = push_dist * np.array([torch.cos(angles), torch.sin(angles)])
+        goal = init + delta
 
-    us = ei.rearrange([init, goal], "two batch dim -> batch 1 two dim")
-    return us
+        if np.any(np.abs(goal) >= GOAL_LIMS):
+            continue
+
+        break
+
+    u = ei.rearrange([init, goal], "two dim -> 1 two dim")
+    return u
+
+
+def sample_controls(rng: np.random.Generator, batch: int, angle_fracs: np.ndarray, push_frames: int) -> np.ndarray:
+    us = [sample_control(rng, angle_fracs, push_frames) for _ in range(batch)]
+    return np.stack(us, axis=0)
 
 
 def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
@@ -57,7 +71,7 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
 
     xs = ei.rearrange(xs, "x -> x 1")
     ys = ei.rearrange(ys, "y -> 1 y")
-    dists = torch.sqrt(xs**2 + ys**2)
+    dists = torch.sqrt(xs ** 2 + ys ** 2)
 
     # (w, h)
     cost_mat = relu(dists - target_radius) ** 4
@@ -68,13 +82,14 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
     return costs
 
 
-def main():
+def main(sol_path: pathlib.Path, name: str = typer.Option(...)):
+    assert sol_path.exists()
+
     sim = BiArmSim(n_arms=1, do_render=True)
 
     batch = 128
 
     down_w, down_h = 32, 32
-    sol_path = pathlib.Path("sol.npz")
     npz = np.load(sol_path)
     As, angle_fracs, push_frames = npz["As"], npz["angle_fracs"], npz["push_frames"]
 
@@ -87,10 +102,15 @@ def main():
     A_length = 32 * 32 * push_frames / 512
     log.info("A_length: {}".format(A_length))
 
-    test_path = pathlib.Path("test_log")
+    test_path = pathlib.Path("test_log/arm1") / name
     test_path.mkdir(exist_ok=True, parents=True)
 
-    start_ims = []
+    imgs_path = test_path / "imgs"
+    imgs_path.mkdir(exist_ok=True, parents=True)
+
+    rng = np.random.default_rng(seed=78413)
+
+    start_ims, all_apply_ims = [], []
     im0, downsampled_img = None, None
     for ii in range(N_ACTIONS):
         # 1: Get the current state.
@@ -106,14 +126,13 @@ def main():
             downsampled_img = torch.Tensor(downsampled_img)
 
         # Save the image.
-        save_img(downsampled_img.cpu().numpy(), test_path / "{:02}_0_start.png".format(ii), upscale=True)
+        save_img(downsampled_img.cpu().numpy(), imgs_path / "{:02}_0_start.png".format(ii), upscale=True)
 
         # 2: Get initial cost.
         initial_cost = cost_fn(downsampled_img, TARGET_RADIUS)
 
         # 3: Sample controls.
-        us = sample_controls(batch, angle_fracs, push_frames)
-        us = us.cpu().numpy()
+        us = sample_controls(rng, batch, angle_fracs, push_frames)
 
         # 4: Forward simulate using learned dynamics model.
         im1s = []
@@ -137,7 +156,8 @@ def main():
         # Apply the best control.
         best_u = us[argmin]
         log.info("best u: {}".format(best_u))
-        sim.apply_control(best_u, render_every=50)
+        apply_ims, _ = sim.apply_control(best_u, render_every=RENDER_EVERY, save_img_every=SAVE_IMG_EVERY)
+        apply_ims = [to_float_img(np.array(im)) for im in apply_ims]
         sim.clear_screen()
         sim.debug_draw()
         im0 = sim.get_image_grayscale_np()
@@ -145,26 +165,34 @@ def main():
         # Convert to grayscale.
         im0 = to_float_img(im0)
         start_ims.append(im0)
+        all_apply_ims.extend(apply_ims)
+
+        # Take last image without pusher in frame.
+        sim.clear_screen()
+        sim.debug_draw()
+        all_apply_ims.append(sim.get_image())
+
         downsampled_img = downsample_img(im0, down_w, down_h)
         downsampled_img = torch.Tensor(downsampled_img)
         final_cost = cost_fn(downsampled_img, TARGET_RADIUS)
         log.info("Expected {:.1f} -> {:.1f}, got {:.1f}.".format(initial_cost, min_cost, final_cost))
 
-    start_ims = np.stack(start_ims, axis=0)
+    apply_ims = np.stack(all_apply_ims, axis=0)
     # Convert to uint8.
-    start_ims = np.clip(start_ims, 0.0, 1.0)
-    start_ims = cast_img_to_rgb(to_uint8_img(start_ims))
+    apply_ims = np.clip(apply_ims, 0.0, 1.0)
+    apply_ims = to_uint8_img(apply_ims)
 
     # For each image, draw a circle showing the target radius.
     downsample_factor = 32 / 512
     radius_in_orig = int(np.round(TARGET_RADIUS / downsample_factor))
-    for ii, img in enumerate(start_ims):
+    for ii, img in enumerate(apply_ims):
         draw_circle(img, radius_in_orig)
 
     # Write start_ims to a video.
-    skvideo.io.vwrite(test_path / "video.mp4", start_ims)
+    log.info("Writing video...")
+    skvideo.io.vwrite(test_path / "video.mp4", apply_ims)
 
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
-        main()
+        typer.run(main)()

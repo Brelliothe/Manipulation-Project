@@ -108,7 +108,7 @@ def draw_circle(img: np.ndarray, radius: int) -> np.ndarray:
 
     center = (img.shape[0] // 2, img.shape[1] // 2)
     color = (0, 255, 0)
-    img = cv2.circle(img, center, radius, color, thickness=1)
+    img = cv2.circle(img, center, radius, color, thickness=2)
     return img
 
 
