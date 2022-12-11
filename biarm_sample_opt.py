@@ -6,6 +6,7 @@ import numpy as np
 import skvideo.io
 import torch
 import torch.distributions as td
+import typer
 from loguru import logger as log
 from torch.nn.functional import relu
 
@@ -22,6 +23,9 @@ TARGET_RADIUS = 5.0
 
 CEN_LIMS = 0.4
 GOAL_LIMS = 0.35
+
+RENDER_EVERY = 50
+SAVE_IMG_EVERY = 20
 
 
 def sample_control(rng: np.random.Generator, n_cen_angles: int, n_arm_angles: int, push_frames: int):
@@ -128,20 +132,20 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
     return costs
 
 
-def main():
+def main(arm1_sol_path: pathlib.Path, arm2_sol_path: pathlib.Path, name: str = typer.Option(...)):
+    assert arm1_sol_path.exists()
+    assert arm2_sol_path.exists()
+
     sim = BiArmSim(n_arms=2, do_render=True)
 
     batch = 512
 
     down_w, down_h = 32, 32
 
-    sol1_path = pathlib.Path("sols/arm1.npz")
-    sol2_path = pathlib.Path("sols/arm2.npz")
-
-    npz1 = np.load(sol1_path)
+    npz1 = np.load(arm1_sol_path)
     arm1_As, angle_fracs, push_frames1 = npz1["As"], npz1["angle_fracs"], npz1["push_frames"]
 
-    npz2 = np.load(sol2_path)
+    npz2 = np.load(arm2_sol_path)
     n_cen_angles, n_arm_angles = npz2["n_cen_angles"], npz2["n_arm_angles"]
     n_arm_seps, push_frames2 = npz2["n_arm_seps"], npz2["push_frames"]
 
@@ -155,12 +159,15 @@ def main():
     A2_length = 32 * 32 * push_frames2 / 512
     log.info("A_length 1={}, 2={}".format(A1_length, A2_length))
 
-    test_path = pathlib.Path("test_log/arm2")
+    test_path = pathlib.Path("test_log/arm2") / name
     test_path.mkdir(exist_ok=True, parents=True)
+
+    imgs_path = test_path / "imgs"
+    imgs_path.mkdir(exist_ok=True, parents=True)
 
     rng = np.random.default_rng(seed=51234)
 
-    start_ims = []
+    start_ims, all_apply_ims = [], []
     im0, downsampled_img = None, None
     for ii in range(N_ACTIONS):
         # 1: Get the current state.
@@ -207,7 +214,8 @@ def main():
         # Apply the best control.
         best_u = us[argmin]
         log.info("best u: {}".format(best_u))
-        sim.apply_control(best_u, render_every=50)
+        apply_ims, _ = sim.apply_control(best_u, render_every=RENDER_EVERY, save_img_every=SAVE_IMG_EVERY)
+        apply_ims = [to_float_img(np.array(im)) for im in apply_ims]
         sim.clear_screen()
         sim.debug_draw()
         im0 = sim.get_image_grayscale_np()
@@ -215,26 +223,34 @@ def main():
         # Convert to grayscale.
         im0 = to_float_img(im0)
         start_ims.append(im0)
+        all_apply_ims.extend(apply_ims)
+
+        # Take last image without pusher in frame.
+        sim.clear_screen()
+        sim.debug_draw()
+        all_apply_ims.append(sim.get_image())
+
         downsampled_img = downsample_img(im0, down_w, down_h)
         downsampled_img = torch.Tensor(downsampled_img)
         final_cost = cost_fn(downsampled_img, TARGET_RADIUS)
         log.info("Expected {:.1f} -> {:.1f}, got {:.1f}.".format(initial_cost, min_cost, final_cost))
 
-    start_ims = np.stack(start_ims, axis=0)
+    apply_ims = np.stack(all_apply_ims, axis=0)
     # Convert to uint8.
-    start_ims = np.clip(start_ims, 0.0, 1.0)
-    start_ims = cast_img_to_rgb(to_uint8_img(start_ims))
+    apply_ims = np.clip(apply_ims, 0.0, 1.0)
+    apply_ims = to_uint8_img(apply_ims)
 
     # For each image, draw a circle showing the target radius.
     downsample_factor = 32 / 512
     radius_in_orig = int(np.round(TARGET_RADIUS / downsample_factor))
-    for ii, img in enumerate(start_ims):
+    for ii, img in enumerate(apply_ims):
         draw_circle(img, radius_in_orig)
 
     # Write start_ims to a video.
-    skvideo.io.vwrite(test_path / "video.mp4", start_ims)
+    log.info("Writing video...")
+    skvideo.io.vwrite(test_path / "video.mp4", apply_ims)
 
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
-        main()
+        typer.run(main)()

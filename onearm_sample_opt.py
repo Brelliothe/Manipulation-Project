@@ -151,7 +151,7 @@ def main(sol_path: pathlib.Path, name: str = typer.Option(...)):
             continue
 
         # Save the predicted output of the best control.
-        save_img(im1s[argmin], test_path / "{:02}_1_pred.png".format(ii), upscale=True)
+        save_img(im1s[argmin], imgs_path / "{:02}_1_pred.png".format(ii), upscale=True)
 
         # Apply the best control.
         best_u = us[argmin]
