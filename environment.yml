@@ -21,3 +21,4 @@ dependencies:
     - seaborn
     - ipdb
     - typer
+    - git+https://github.com/oswinso/lovely_histogram.git

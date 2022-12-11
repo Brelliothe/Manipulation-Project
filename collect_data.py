@@ -17,7 +17,7 @@ from utils.img import cast_img_to_rgb, draw_pushbox, save_img
 
 RENDER_AT_LENGTH = 32
 
-DIR_NAME = "data"
+DIR_NAME = "data/arm1"
 N_SAMPLE = 1024
 
 # DIR_NAME = "val_data"
@@ -70,6 +70,12 @@ def main(seed: Optional[int] = typer.Option(...)):
     cmap = plt.get_cmap("RdBu")
 
     for _ in tqdm.trange(N_SAMPLE):
+        # 4: Reset sim randomly.
+        reset_frac = 0.8
+        if rng.binomial(1, reset_frac) == 1:
+            rand_particle_num = rng.integers(140, 180)
+            sim.refresh(particle_num=rand_particle_num)
+
         u = sample_control(rng)
         images, info = sim.apply_control(u, RENDER_AT_LENGTH)
 
@@ -118,10 +124,6 @@ def main(seed: Optional[int] = typer.Option(...)):
         # preview_path = "preview.png"
         save_img(preview_img, preview_path)
         log.info("Saved to {}".format(preview_path))
-
-        # 4: Reset sim.
-        rand_particle_num = rng.integers(140, 180)
-        sim.refresh(particle_num=rand_particle_num)
 
 
 if __name__ == "__main__":
