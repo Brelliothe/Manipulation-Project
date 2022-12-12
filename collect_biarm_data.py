@@ -21,11 +21,11 @@ from utils.img import cast_img_to_rgb, draw_pushbox, save_img
 
 RENDER_AT_LENGTH = 32
 
-COLLECT_TRAIN = False
+COLLECT_TRAIN = True
 
 if COLLECT_TRAIN:
     DIR_NAME = "data/arm2"
-    N_SAMPLE = 8192
+    N_SAMPLE = 1024
     N_CEN_ANGLES = 4
     N_ARM_ANGLES = 2
     N_ARM_SEPS = 3

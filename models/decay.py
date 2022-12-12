@@ -103,7 +103,7 @@ def get_mask(u: np.ndarray):
             2 * np.dot(goal - init, init),
             np.dot(init, init) - distance * distance,
         )
-        k = 1 if b * b - 4 * a * c < 0 else (b - math.sqrt(b * b - 4 * a * c)) / (2 * a)
+        k = 1 if b * b - 4 * a * c < 0 else (-b - math.sqrt(b * b - 4 * a * c)) / (2 * a)
         # print(k)
         k = 1 if k < 0 or k > 1 else k
         inits, goals = u[:, 0], k * u[:, 1] + (1 - k) * u[:, 0]

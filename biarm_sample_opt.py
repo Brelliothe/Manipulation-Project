@@ -106,7 +106,7 @@ def sample_controls(
     return us
 
 
-def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
+def cost_fn(im: torch.Tensor, target_radius: float, power: float = 4) -> torch.Tensor:
     # im: (..., w, h)
     # Cost is sum of mass outside the circle.
 
@@ -124,7 +124,7 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
     dists = torch.sqrt(xs ** 2 + ys ** 2)
 
     # (w, h)
-    cost_mat = relu(dists - target_radius) ** 4
+    cost_mat = relu(dists - target_radius) ** power
 
     costs = ei.reduce(im * cost_mat, "... w h -> ...", reduction="sum")
 
