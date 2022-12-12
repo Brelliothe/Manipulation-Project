@@ -6,6 +6,7 @@ import numpy as np
 import skvideo.io
 import torch
 import torch.distributions as td
+import tqdm
 import typer
 from loguru import logger as log
 from torch.nn.functional import relu
@@ -13,6 +14,7 @@ from torch.nn.functional import relu
 from envs.biarm import BiArmSim
 from envs.biarm_utils import centered_to_biarm_state, state_to_control, to_screen_pos
 from make_dset import downsample_img, to_float_img, to_uint8_img
+from models.decay import predict_biarm_decay, transform_im
 from models.linear_dyn import predict_biarm_far, predict_onearm
 from utils.angles import wrap_angle
 from utils.img import cast_img_to_rgb, draw_circle, save_img
@@ -132,32 +134,13 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
     return costs
 
 
-def main(arm1_sol_path: pathlib.Path, arm2_sol_path: pathlib.Path, name: str = typer.Option(...)):
-    assert arm1_sol_path.exists()
-    assert arm2_sol_path.exists()
-
+def main(name: str = typer.Option(...)):
     sim = BiArmSim(n_arms=2, do_render=True)
 
-    batch = 512
-
+    # batch = 512
+    batch = 16
     down_w, down_h = 32, 32
-
-    npz1 = np.load(arm1_sol_path)
-    arm1_As, angle_fracs, push_frames1 = npz1["As"], npz1["angle_fracs"], npz1["push_frames"]
-
-    npz2 = np.load(arm2_sol_path)
-    n_cen_angles, n_arm_angles = npz2["n_cen_angles"], npz2["n_arm_angles"]
-    n_arm_seps, push_frames2 = npz2["n_arm_seps"], npz2["push_frames"]
-
-    (n_angles,) = angle_fracs.shape
-    train_angles = angle_fracs * np.pi / 2
-    angle_fracs = torch.Tensor(angle_fracs)
-
-    assert arm1_As.shape == (n_angles, down_w * down_h, down_w * down_h)
-
-    A1_length = 32 * 32 * push_frames1 / 512
-    A2_length = 32 * 32 * push_frames2 / 512
-    log.info("A_length 1={}, 2={}".format(A1_length, A2_length))
+    n_cen_angles, n_arm_angles, push_frames1 = 4, 2, 2
 
     test_path = pathlib.Path("test_log/arm2") / name
     test_path.mkdir(exist_ok=True, parents=True)
@@ -168,7 +151,7 @@ def main(arm1_sol_path: pathlib.Path, arm2_sol_path: pathlib.Path, name: str = t
     rng = np.random.default_rng(seed=51234)
 
     start_ims, all_apply_ims = [], []
-    im0, downsampled_img = None, None
+    im0, down_trans_img = None, None
     for ii in range(N_ACTIONS):
         # 1: Get the current state.
         if im0 is None:
@@ -179,14 +162,14 @@ def main(arm1_sol_path: pathlib.Path, arm2_sol_path: pathlib.Path, name: str = t
             # Convert to grayscale.
             im0 = to_float_img(im0)
             start_ims.append(im0)
-            downsampled_img = downsample_img(im0, down_w, down_h)
-            downsampled_img = torch.Tensor(downsampled_img)
+            down_trans_img = downsample_img(transform_im(im0), down_w, down_h)
+            down_trans_img_torch = torch.Tensor(down_trans_img)
 
         # Save the image.
-        save_img(downsampled_img.cpu().numpy(), imgs_path / "{:02}_0_start.png".format(ii), upscale=True)
+        save_img(down_trans_img, imgs_path / "{:02}_0_start.png".format(ii), upscale=True)
 
         # 2: Get initial cost.
-        initial_cost = cost_fn(downsampled_img, TARGET_RADIUS)
+        initial_cost = cost_fn(down_trans_img_torch, TARGET_RADIUS)
 
         # 3: Sample controls.
         us = sample_controls(rng, batch, n_cen_angles, n_arm_angles, push_frames1)
@@ -194,8 +177,8 @@ def main(arm1_sol_path: pathlib.Path, arm2_sol_path: pathlib.Path, name: str = t
 
         # 4: Forward simulate using learned dynamics model.
         im1s = []
-        for u in us:
-            pred_im1 = predict_biarm_far(arm1_As, train_angles, im0, u, A1_length, down_w, down_h)
+        for u in tqdm.tqdm(us):
+            pred_im1 = predict_biarm_decay(im0, u)
             im1s.append(pred_im1)
         torch_im1s = torch.Tensor(np.stack(im1s, axis=0))
         new_costs = cost_fn(torch_im1s, TARGET_RADIUS)
@@ -230,9 +213,9 @@ def main(arm1_sol_path: pathlib.Path, arm2_sol_path: pathlib.Path, name: str = t
         sim.debug_draw()
         all_apply_ims.append(sim.get_image())
 
-        downsampled_img = downsample_img(im0, down_w, down_h)
-        downsampled_img = torch.Tensor(downsampled_img)
-        final_cost = cost_fn(downsampled_img, TARGET_RADIUS)
+        down_trans_img = downsample_img(transform_im(im0), down_w, down_h)
+        down_trans_img_torch = torch.Tensor(down_trans_img)
+        final_cost = cost_fn(down_trans_img_torch, TARGET_RADIUS)
         log.info("Expected {:.1f} -> {:.1f}, got {:.1f}.".format(initial_cost, min_cost, final_cost))
 
     apply_ims = np.stack(all_apply_ims, axis=0)
