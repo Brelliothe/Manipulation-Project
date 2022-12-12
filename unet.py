@@ -174,6 +174,18 @@ class ResNetUNet(nn.Module):
     
     # def decode(self, input):
     #     pass
+    
+def freeze(model):
+    for idx, child in enumerate(model.children()):
+        if idx == 137: # do not freeze the action layer
+            continue
+        for param in child.parameters():
+            param.requires_grad = False
+        
+def unfreeze(model):
+    for idx, child in enumerate(model.children()):
+        for param in child.parameters():
+            param.requires_grad = True
 
 
 def calc_loss(pred, target, metrics):
