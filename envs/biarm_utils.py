@@ -235,7 +235,11 @@ def modify_pushlength(u: np.ndarray, A_length: float, n_pred_lengths: int) -> np
     desired_pushlengths = n_pred_lengths * push_frames * 32
 
     coeff = desired_pushlengths / real_pushlengths
+    coeff = coeff[:, None]
 
     new_u = u.copy()
     new_u[:, 1, :] = u[:, 0, :] + coeff * (u[:, 1, :] - u[:, 0, :])
+
+    assert np.all(np.abs(new_u) < 0.5)
+
     return new_u

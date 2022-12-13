@@ -226,13 +226,14 @@ class BiArmSim(pyglet.window.Window):
                     pusher_states.append(pusher_state)
 
                     save_at_length += render_at_length
-            elif render_every is not None and steps % render_every == 0:
-                # Just for visualization.
-                self.render_to_screen()
-            elif save_img_every is not None and steps % save_img_every == 0:
-                self.clear_screen()
-                self.debug_draw(draw_pusher=True)
-                images.append(self.get_image())
+            else:
+                if render_every is not None and steps % render_every == 0:
+                    # Just for visualization.
+                    self.render_to_screen()
+                if save_img_every is not None and steps % save_img_every == 0:
+                    self.clear_screen()
+                    self.debug_draw(draw_pusher=True)
+                    images.append(self.get_image())
 
             vels = np.stack([np.linalg.norm(pusher.body.velocity) for pusher in self.pushers], axis=0)
             v_err_hist[steps] = vels - v_noms
