@@ -137,8 +137,8 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
 def main(name: str = typer.Option(...)):
     sim = BiArmSim(n_arms=2, do_render=True)
 
-    # batch = 512
-    batch = 16
+    batch = 100
+    # batch = 16
     down_w, down_h = 32, 32
     n_cen_angles, n_arm_angles, push_frames1 = 4, 2, 2
 
@@ -153,6 +153,8 @@ def main(name: str = typer.Option(...)):
     start_ims, all_apply_ims = [], []
     im0, down_trans_img = None, None
     for ii in range(N_ACTIONS):
+        if ii % 10 == 0:
+            log.info("ii = {}".format(ii))
         # 1: Get the current state.
         if im0 is None:
             sim.clear_screen()
@@ -184,6 +186,7 @@ def main(name: str = typer.Option(...)):
         new_costs = cost_fn(torch_im1s, TARGET_RADIUS)
 
         # 5: Get the argmin cost.
+        new_costs = torch.nan_to_num(new_costs, 1e8)
         argmin = torch.argmin(new_costs)
         min_cost = new_costs[argmin]
 
@@ -192,7 +195,7 @@ def main(name: str = typer.Option(...)):
             continue
 
         # Save the predicted output of the best control.
-        save_img(im1s[argmin], test_path / "{:02}_1_pred.png".format(ii), upscale=True)
+        save_img(im1s[argmin], imgs_path / "{:02}_1_pred.png".format(ii), upscale=True)
 
         # Apply the best control.
         best_u = us[argmin]

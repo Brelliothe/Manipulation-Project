@@ -1,4 +1,5 @@
 import math
+import einops as ei
 
 import cv2
 import ipdb
@@ -103,7 +104,7 @@ def get_mask(u: np.ndarray):
             2 * np.dot(goal - init, init),
             np.dot(init, init) - distance * distance,
         )
-        k = 1 if b * b - 4 * a * c < 0 else (b - math.sqrt(b * b - 4 * a * c)) / (2 * a)
+        k = 1 if b * b - 4 * a * c < 0 else (-b - math.sqrt(b * b - 4 * a * c)) / (2 * a)
         # print(k)
         k = 1 if k < 0 or k > 1 else k
         inits, goals = u[:, 0], k * u[:, 1] + (1 - k) * u[:, 0]
@@ -111,10 +112,20 @@ def get_mask(u: np.ndarray):
         pusher2 = construct_polygon(inits[1], goals[1], l, r)
     # print(u)
 
-    area_mask = np.zeros((480, 640))
-    for i in range(640):
-        for j in range(480):
-            area_mask[479 - j][i] = 1 if pusher1.contains_point((i, j)) or pusher2.contains_point((i, j)) else 0
+    jj_s = ei.repeat(np.arange(480), "jj -> jj 640")
+    ii_s = ei.repeat(np.arange(640), "ii -> 480 ii")
+    pts = ei.rearrange([ii_s, jj_s], "b jj ii -> (jj ii) b")
+    area_mask2 = pusher1.contains_points(pts) | pusher2.contains_points(pts)
+    area_mask2 = ei.rearrange(area_mask2, "(jj ii) -> jj ii", jj=480, ii=640)
+    area_mask = area_mask2[::-1, :].astype(np.float64)
+
+    # area_mask = np.zeros((480, 640))
+    # for i in range(640):
+    #     for j in range(480):
+    #         area_mask[479 - j][i] = 1 if pusher1.contains_point((i, j)) or pusher2.contains_point((i, j)) else 0
+    #
+    # assert area_mask.shape == area_mask2.shape
+    # assert np.allclose(area_mask, area_mask2)
 
     # area_mask = np.rot90(area_mask.T, 3)
     # Image.fromarray(np.uint8(cm.gist_earth(area_mask) * 255)).convert("RGB").save("example.png")
@@ -123,15 +134,31 @@ def get_mask(u: np.ndarray):
     polygon1 = construct_polygon(u[0][1] + move_direction1 * r, goals[0] + move_direction1 * 10, 2 * l, 0.1)
     polygon2 = construct_polygon(u[1][1] + move_direction2 * r, goals[1] + move_direction2 * 10, 2 * l, 0.1)
 
-    weight_mask = np.zeros((480, 640))
-    for i in range(640):
-        for j in range(480):
-            if polygon1.contains_point((i, j)):
-                distance = np.linalg.norm(goals[0] + move_direction1 * r - np.array([i, j]))
-                weight_mask[479 - j][i] = math.exp(distance * math.log(0.9))
-            elif polygon2.contains_point((i, j)):
-                distance = np.linalg.norm(goals[1] + move_direction2 * r - np.array([i, j]))
-                weight_mask[479 - j][i] = math.exp(distance * math.log(0.9))
+
+    pts_mat = ei.rearrange([ii_s, jj_s], "b jj ii -> jj ii b")
+
+    in_poly1 = ei.rearrange(polygon1.contains_points(pts), "(jj ii) -> jj ii", jj=480, ii=640)
+    dists1 = np.linalg.norm(goals[0] + move_direction1 * r - pts_mat, axis=2)
+    weights1 = np.exp(dists1 * math.log(0.9))
+
+    in_poly2 = ei.rearrange(polygon2.contains_points(pts), "(jj ii) -> jj ii", jj=480, ii=640)
+    dists2 = np.linalg.norm(goals[1] + move_direction2 * r - pts_mat, axis=2)
+    weights2 = np.exp(dists2 * math.log(0.9))
+
+    weight_mask2 = in_poly1 * weights1 + (1 - in_poly1) * in_poly2 * weights2
+    weight_mask = weight_mask2[::-1, :]
+    #
+    # weight_mask = np.zeros((480, 640))
+    # for i in range(640):
+    #     for j in range(480):
+    #         if polygon1.contains_point((i, j)):
+    #             distance = np.linalg.norm(goals[0] + move_direction1 * r - np.array([i, j]))
+    #             weight_mask[479 - j][i] = math.exp(distance * math.log(0.9))
+    #         elif polygon2.contains_point((i, j)):
+    #             distance = np.linalg.norm(goals[1] + move_direction2 * r - np.array([i, j]))
+    #             weight_mask[479 - j][i] = math.exp(distance * math.log(0.9))
+    #
+    # assert np.allclose(weight_mask2, weight_mask)
 
     # weight_mask = np.rot90(weight_mask.T)
     weight_mask = np.array(Image.fromarray(weight_mask).resize((32, 32), resample=Image.Resampling.BILINEAR))

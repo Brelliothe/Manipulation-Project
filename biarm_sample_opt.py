@@ -138,7 +138,8 @@ def main(arm1_sol_path: pathlib.Path, arm2_sol_path: pathlib.Path, name: str = t
 
     sim = BiArmSim(n_arms=2, do_render=True)
 
-    batch = 512
+    # batch = 512
+    batch = 16
 
     down_w, down_h = 32, 32
 

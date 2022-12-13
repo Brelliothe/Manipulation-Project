@@ -82,12 +82,12 @@ def draw_pushbox(
     orig_img = img.copy()
 
     # log.info("push_rect: {}".format(push_rect))
-    img = cv2.polylines(img, [push_rect], True, color, 1)
+    img = cv2.polylines(img, [push_rect], True, color, 2)
 
     # Draw an arrow indicating push direction.
     origin = np.array([cen_r + cen_x, cen_c + cen_y]).round().astype(int)
     goal = np.round(origin + np.array([np.cos(angle) * width, -np.sin(angle) * width])).astype(int)
-    img = cv2.arrowedLine(img, origin, goal, color=color, thickness=1, tipLength=0.15)
+    img = cv2.arrowedLine(img, origin, goal, color=color, thickness=2, tipLength=0.15)
 
     alpha = 0.4
     img = cv2.addWeighted(img, alpha, orig_img, 1 - alpha, 0.0)
@@ -112,7 +112,7 @@ def draw_circle(img: np.ndarray, radius: int) -> np.ndarray:
     return img
 
 
-def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool = False):
+def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool | int = False):
     if img.dtype != np.uint8:
         assert is_float_img(img)
 
@@ -133,9 +133,9 @@ def save_img(img: np.ndarray, path: pathlib.Path, upscale: bool = False):
         # Convert [0, 1] to [0, 255].
         img = np.round(img * 255).astype(int)
 
-    if upscale:
+    if upscale is True or isinstance(upscale, int):
         # If the image is tiny, then upscale.
-        UPSCALE_SIZE = 512
+        UPSCALE_SIZE = upscale
         min_dim = min(img.shape[0], img.shape[1])
         if min_dim < UPSCALE_SIZE:
             factor = np.round(UPSCALE_SIZE / min_dim)
