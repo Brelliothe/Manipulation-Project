@@ -7,9 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import tqdm
+import typer
 from loguru import logger as log
 
-from lstsq.lstsq import solve_ridge
+from lstsq.lstsq import solve_nnls, solve_ridge
 from utils.angles import get_rotmat
 from utils.conversions import tonp
 from utils.img import draw_pushbox, save_img, upscale_img
@@ -19,11 +20,18 @@ DOWN_W = 32
 SEPARATE_EVAL_THRESH = 1200
 N_EVAL = 8
 
+MAX_ARM_SEP = 0.36
 
-def main():
+
+def main(method: str = "nnls"):
     npz_path = pathlib.Path("dset/arm2/data.npz")
     npz = np.load(npz_path)
     log.info("loaded!")
+
+    assert method in ["nnls", "ridge"]
+
+    plot_dir = pathlib.Path(__file__).parent / "plots/arm2" / method
+    plot_dir.mkdir(exist_ok=True, parents=True)
 
     # Get constants.
     n_cen_angles, n_arm_angles = npz["N_CEN_ANGLES"], npz["N_ARM_ANGLES"]
@@ -35,6 +43,7 @@ def main():
     arm_angle_fracs = np.linspace(0, 4.0, 4 * n_arm_angles + 1)[:-1]
     arm_angles = arm_angle_fracs * np.pi / 2
 
+    # THIS IS WRONG!!
     arm_sep_fracs = np.linspace(0, 0.5, n_arm_seps + 1)[1:]
     arm_seps = arm_sep_fracs * WIDTH
 
@@ -46,7 +55,7 @@ def main():
     filtered_keys = []
     for key in dict_keys:
         n_imgs = len(npz[str(key)])
-        if n_imgs < 200:
+        if n_imgs < 1000:
             log.info("Filtering out {} - {}".format(key, n_imgs))
             continue
 
@@ -74,25 +83,30 @@ def main():
         for angle_idx, center_angle_frac in enumerate(cen_angle_fracs):
 
             # (n_samples, n_angles, 2, W, H) -> (n_samples, W, H)
-            im0, im1 = torch.Tensor(imgs[:, angle_idx, 0, :, :]), torch.Tensor(imgs[:, angle_idx, 1, :, :])
-            im0, im1 = im0.to(device), im1.to(device)
+            im0, im1 = imgs[:, angle_idx, 0, :, :], imgs[:, angle_idx, 1, :, :]
 
             # Initialize with least squares fit.
             im0_vec = ei.rearrange(im0, "batch W H -> batch (W H)")
             im1_vec = ei.rearrange(im1, "batch W H -> batch (W H)")
-            delta_vec = im1_vec - im0_vec
             # [-1, 1]
             # log.info("delta min={}, max={}".format(delta_vec.min(), delta_vec.max()))
 
             # Solve least-squares using SVD.
             if n_samples > SEPARATE_EVAL_THRESH:
                 ls_A = im0_vec[N_EVAL:, :]
-                ls_B = delta_vec[N_EVAL:, :]
+                ls_B = im1_vec[N_EVAL:, :]
+                delta_vec = im1_vec[N_EVAL:, :] - im0_vec[N_EVAL:, :]
             else:
                 ls_A = im0_vec
-                ls_B = delta_vec
+                ls_B = im1_vec
+                delta_vec = im1_vec - im0_vec
 
-            ls_A, info = solve_ridge(ls_A, ls_B, reg=0.1, clip_thresh=4.0)
+            if method == "nnls":
+                A, info = solve_nnls(ls_A, ls_B, reg=0.1)
+                A = A - np.eye(w * h)
+            elif method == "ridge":
+                A, info = solve_ridge(ls_A, delta_vec, reg=0.1)
+
             resids = info["resids"]
             log.info("    mean_err: {:.2f}, max_err: {:.2f}".format(resids.mean(), resids.max()))
 
@@ -103,12 +117,12 @@ def main():
             # log.info("    coeff min: {:.2f}, max: {:.2f}".format(tmp_A.min(), tmp_A.max()))
             # ls_A = tmp_A - torch.eye(ls_A.shape[0], device=device)
 
-            As.append(tonp(ls_A))
+            As.append(A)
 
             # Evaluate the least squares.
-            true_im0_vec = tonp(im0_vec[eval_idxs])
-            pred_im1_vec = tonp(im0_vec[eval_idxs] @ ls_A + im0_vec[eval_idxs])
-            true_im1_vec = tonp(im1_vec[eval_idxs])
+            true_im0_vec = im0_vec[eval_idxs]
+            pred_im1_vec = im0_vec[eval_idxs] @ A + im0_vec[eval_idxs]
+            true_im1_vec = im1_vec[eval_idxs]
 
             if n_samples > SEPARATE_EVAL_THRESH:
                 eval_resid = np.mean(np.sum((true_im1_vec - pred_im1_vec) ** 2, axis=1))
@@ -158,9 +172,6 @@ def main():
                     for ims in [true_im0, pred_im1, true_im1, diff_img]
                 ]
 
-            plot_dir = pathlib.Path(__file__).parent / "plots/arm2"
-            plot_dir.mkdir(exist_ok=True, parents=True)
-
             # Each instance is a row. Stack rows.
             images = ei.rearrange(
                 [true_im0, pred_im1, true_im1, diff_img], "ncols b H W dim -> (b H) (ncols W) dim", dim=3
@@ -175,7 +186,7 @@ def main():
 
         As_dict[str_key] = As
 
-    sol_path = pathlib.Path("sols/arm2.npz")
+    sol_path = pathlib.Path("sols") / method / "arm2.npz"
     sol_path.parent.mkdir(exist_ok=True, parents=True)
     np.savez(
         sol_path,
@@ -197,4 +208,4 @@ def main():
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
-        main()
+        typer.run(main)()

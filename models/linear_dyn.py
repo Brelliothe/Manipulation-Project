@@ -10,7 +10,8 @@ from einops.layers.torch import Rearrange
 from loguru import logger as log
 from PIL.Image import fromarray
 
-from envs.biarm_utils import control_info, control_to_state, to_screen_pos, modify_pushlength
+from envs.biarm_utils import (biarm_state_to_centered, control_info, control_to_state, modify_pushlength,
+                              state_to_control, to_screen_pos)
 from make_dset import center_img, center_img_2, downsample_img, downsample_state, shift_img, uncenter_img
 from utils.angles import wrap_angle
 from utils.img import cast_img_to_rgb, rotate_img, save_img
@@ -93,46 +94,36 @@ def shift_linear(A: np.ndarray, shift: np.ndarray, w: int, h: int) -> np.ndarray
 def predict_onearm(
     As: np.ndarray, train_angles: np.ndarray, im0: np.ndarray, u: np.ndarray, A_length: float, down_w: int, down_h: int
 ):
-    # downsample, then call the downsampled dynamics.
-    down_factor = down_w / im0.shape[0]
-    assert down_factor < 1
-    down_im0 = downsample_img(im0, down_w, down_h)
+    assert u.shape == (1, 2, 2)
+
+    if im0.shape == (32, 32):
+        down_im0 = im0
+        down_factor = 32 / 512
+    else:
+        # downsample, then call the downsampled dynamics.
+        down_factor = down_w / im0.shape[0]
+        assert down_factor < 1
+        down_im0 = downsample_img(im0, down_w, down_h)
 
     return predict_onearm_down(As, train_angles, down_im0, u, A_length, down_factor)
 
 
-def predict_onearm_down(
-    As: np.ndarray, train_angles: np.ndarray, down_im0: np.ndarray, u: np.ndarray, A_length: float, down_factor: float
+def predict_onearm_down_(
+    A: np.ndarray,
+    down_im0: np.ndarray,
+    start_state: np.ndarray,
+    angle: float,
+    push_length: float,
+    A_length: float,
+    down_factor: float,
 ):
-    """
-    :param As: (n_angles, w * h, w * h)
-    :param train_angles:
-    :param down_im0: (down_w, down_h)
-    :param u:
-    :param A_length:
-    :param down_factor: down_w / orig_w
-    """
-    val_path = pathlib.Path("val_imgs")
-
-    WIDTH, HEIGHT = 512, 512
-    thetas, push_lengths = control_info(u, WIDTH, HEIGHT)
-    start_state = control_to_state(u, WIDTH, HEIGHT).squeeze()
-    theta, push_length = thetas.squeeze(), push_lengths.squeeze()
-
-    # Get which A to use. train_angles should be in [0, pi / 2). First, make sure theta is between 0 and 2pi.
-    theta = wrap_angle(theta, 0.0)
-
-    n_90s, remainder = np.divmod(theta, np.pi / 2)
-    theta_idx = np.argmin((remainder - train_angles) ** 2)
-    angle = train_angles[theta_idx]
-    A = As[theta_idx]
-
     # How many times to apply A.
     down_w, down_h = down_im0.shape
     assert down_factor < 1
     downsampled_start_state = downsample_state(start_state, down_factor)
 
     # Set the rotation to only be multiples of 90 degrees.
+    n_90s, remainder = np.divmod(angle, np.pi / 2)
     downsampled_start_state[2] = n_90s * np.pi / 2
 
     # 1: Downsample first.
@@ -178,6 +169,35 @@ def predict_onearm_down(
     return pred_img, mask
 
 
+def predict_onearm_down(
+    As: np.ndarray, train_angles: np.ndarray, down_im0: np.ndarray, u: np.ndarray, A_length: float, down_factor: float
+):
+    """
+    :param As: (n_angles, w * h, w * h)
+    :param train_angles:
+    :param down_im0: (down_w, down_h)
+    :param u:
+    :param A_length:
+    :param down_factor: down_w / orig_w
+    """
+    val_path = pathlib.Path("val_imgs")
+
+    WIDTH, HEIGHT = 512, 512
+    start_state = control_to_state(u, WIDTH, HEIGHT).squeeze()
+    thetas, push_lengths = control_info(u, WIDTH, HEIGHT)
+    theta, push_length = thetas.squeeze(), push_lengths.squeeze()
+
+    # Get which A to use. train_angles should be in [0, pi / 2). First, make sure theta is between 0 and 2pi.
+    theta = wrap_angle(theta, 0.0)
+
+    n_90s, remainder = np.divmod(theta, np.pi / 2)
+    theta_idx = np.argmin((remainder - train_angles) ** 2)
+    angle = train_angles[theta_idx]
+    A = As[theta_idx]
+
+    return predict_onearm_down_(A, down_im0, start_state, angle, push_length, A_length, down_factor)
+
+
 def predict_biarm_far(
     As: np.ndarray,
     train_angles: np.ndarray,
@@ -188,10 +208,14 @@ def predict_biarm_far(
     down_h: int,
     n_pred_lengths: int | None = None,
 ):
-    # Downsample im0.
-    down_factor = down_w / im0.shape[0]
-    assert down_factor < 1
-    down_im0 = downsample_img(im0, down_w, down_h)
+    # Downsample im0 if not already downsampled.
+    if im0.shape == (32, 32):
+        down_factor = 32 / 512
+        down_im0 = im0
+    else:
+        down_factor = down_w / im0.shape[0]
+        assert down_factor < 1
+        down_im0 = downsample_img(im0, down_w, down_h)
 
     if n_pred_lengths is not None:
         # Modify u so it only goes n_pred_lengths.
@@ -210,6 +234,84 @@ def predict_biarm_far(
 
     pred = 0.5 * pred_lr + 0.5 * pred_rl
     return pred
+
+
+def predict_biarm(
+    A2_dict: dict[str, np.ndarray],
+    A1s: np.ndarray | None,
+    arm1_train_angles: np.ndarray | None,
+    im0: np.ndarray,
+    u: np.ndarray,
+    A_length: float,
+    n_arm_seps: int,
+    n_arm_angles: int,
+    n_cen_angles: int,
+    down_w: int,
+    down_h: int,
+    n_pred_lengths: int | None = None,
+) -> np.ndarray:
+    WIDTH = 512
+
+    cen_angle_fracs = np.linspace(0, 1.0, n_cen_angles + 1)[:-1]
+    center_angles = cen_angle_fracs * np.pi / 2
+
+    arm_angle_fracs = np.linspace(0, 4.0, 4 * n_arm_angles + 1)[:-1]
+    arm_angles = arm_angle_fracs * np.pi / 2
+
+    arm_sep_fracs = np.linspace(0, 0.5, n_arm_seps + 1)[1:]
+    arm_seps = arm_sep_fracs * WIDTH
+
+    # Decompose u.
+    full_state = control_to_state(u, WIDTH, WIDTH)
+    center_state, arm_rots, orig_arm_sep = biarm_state_to_centered(full_state)
+    arm_rots = wrap_angle(arm_rots, floor=0.0)
+
+    # Find the closest arm angles.
+    l_argmin, r_argmin = np.argmin((arm_rots[:, None] - arm_angles[None, :]) ** 2, axis=1)
+    l_anglefrac, r_anglefrac = arm_angle_fracs[l_argmin], arm_angle_fracs[r_argmin]
+    l_angle, r_angle = arm_angles[l_argmin], arm_angles[r_argmin]
+
+    # Find the closest arm separations.
+    arm_sep_argmin = np.argmin((orig_arm_sep - arm_seps) ** 2)
+    arm_sep = arm_seps[arm_sep_argmin]
+    arm_sep_frac = arm_sep_fracs[arm_sep_argmin]
+
+    key = (arm_sep_frac, l_anglefrac, r_anglefrac)
+    key_str = str(key)
+
+    if key_str not in A2_dict:
+        if A1s is None:
+            return None
+        # If not in dictionary, then use far prediction.
+        return predict_biarm_far(A1s, arm1_train_angles, im0, u, A_length, down_w, down_h, n_pred_lengths)
+
+    # Otherwise, use close prediction.
+    As = A2_dict[key_str]
+
+    # Use the centered_state as a "fake" control.
+    _, push_lengths = control_info(u, WIDTH, WIDTH)
+    push_length = push_lengths[0]
+
+    if n_pred_lengths is not None:
+        push_frames = A_length * 512 / (32 * 32)
+        push_length = n_pred_lengths * push_frames * 32
+
+    fake_u = state_to_control(center_state[None, :], push_length, WIDTH)
+
+    pred, mask = predict_onearm(As, center_angles, im0, fake_u, A_length, down_w, down_h)
+    return pred
+
+    # assert center_state.shape == (3,)
+    # start_state = center_state
+    # angle = center_state[2]
+    #
+    # down_factor = down_w / im0.shape[0]
+    # assert down_factor < 1
+    # down_im0 = downsample_img(im0, down_w, down_h)
+    #
+    # pred, _ = predict_onearm_down_(A, down_im0, start_state, angle, push_length, A_length, down_factor)
+    # assert pred.shape == (WIDTH, WIDTH)
+    # return pred
 
 
 def predict_onearm_old(A: np.ndarray, im0: np.ndarray, u: np.ndarray, A_length: float, down_w: int, down_h: int):

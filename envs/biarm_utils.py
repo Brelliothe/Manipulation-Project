@@ -213,15 +213,18 @@ def state_to_goal(state: np.ndarray, push_length: float) -> np.ndarray:
 
 
 def state_to_control(state: np.ndarray, push_length: float, width: float) -> np.ndarray:
-    assert state.shape == (2, 3)
+    n_arms, _ = state.shape
+    assert state.shape == (n_arms, 3)
 
     goal_states = np.stack([state_to_goal(s, push_length) for s in state], axis=0)
-    assert goal_states.shape == (2, 2)
+    assert goal_states.shape == (n_arms, 2)
 
     # [0, width]
     u_screen = np.stack([state[:, :2], goal_states], axis=1)
     # [0, width] -> [-0.5, 0.5]
     u = u_screen / width - 0.5
+
+    assert u.shape == (n_arms, 2, 2)
     return u
 
 

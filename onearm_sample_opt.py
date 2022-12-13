@@ -71,7 +71,7 @@ def cost_fn(im: torch.Tensor, target_radius: float) -> torch.Tensor:
 
     xs = ei.rearrange(xs, "x -> x 1")
     ys = ei.rearrange(ys, "y -> 1 y")
-    dists = torch.sqrt(xs ** 2 + ys ** 2)
+    dists = torch.sqrt(xs**2 + ys**2)
 
     # (w, h)
     cost_mat = relu(dists - target_radius) ** 4
@@ -107,6 +107,9 @@ def main(sol_path: pathlib.Path, name: str = typer.Option(...)):
 
     imgs_path = test_path / "imgs"
     imgs_path.mkdir(exist_ok=True, parents=True)
+
+    imgs2_path = test_path / "imgs2"
+    imgs2_path.mkdir(exist_ok=True, parents=True)
 
     rng = np.random.default_rng(seed=78413)
 
@@ -191,6 +194,11 @@ def main(sol_path: pathlib.Path, name: str = typer.Option(...)):
     # Write start_ims to a video.
     log.info("Writing video...")
     skvideo.io.vwrite(test_path / "video.mp4", apply_ims)
+
+    # Also write each frame.
+    for ii, im in enumerate(apply_ims):
+        save_img(im, imgs2_path / "{:03}.png".format(ii))
+    log.info("Saved to {}!".format(imgs2_path))
 
 
 if __name__ == "__main__":
